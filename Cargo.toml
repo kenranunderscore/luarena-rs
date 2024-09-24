@@ -1,0 +1,12 @@
+[package]
+name = "luarena-rs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies.mlua]
+version = "0.9.9"
+features = ["lua54", "vendored"]
+[dependencies.raylib]
+git = "https://github.com/kenranunderscore/raylib-rs"
+version = "5.0.1"
+features = ["nobuild"]
