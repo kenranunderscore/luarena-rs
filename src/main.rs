@@ -1,12 +1,13 @@
 use mlua::prelude::*;
 use raylib::prelude::*;
 
-struct game_state {
+struct GameState {
     tick: i16,
+    players: Vec<LuaPlayer>,
 }
 
-struct lua_player {
-    lua_state: Lua,
+struct LuaPlayer {
+    _lua_state: Lua,
     x: i32,
     y: i32,
 }
@@ -21,7 +22,7 @@ fn _main_lua() -> LuaResult<()> {
     Ok(())
 }
 
-fn draw_line_in_direction(
+fn _draw_line_in_direction(
     mut d: raylib::drawing::RaylibDrawHandle,
     x: i32,
     y: i32,
@@ -39,21 +40,40 @@ fn draw_line_in_direction(
     );
 }
 
-fn render_player(mut d: raylib::drawing::RaylibDrawHandle, p: &lua_player) {
-    d.draw_circle(p.x, p.y, 25.0, Color::GREENYELLOW);
+fn render_players(mut d: raylib::drawing::RaylibDrawHandle, players: &Vec<LuaPlayer>) {
+    for p in players {
+        d.draw_circle(p.x, p.y, 25.0, Color::GREENYELLOW);
+    }
 }
 
-fn advance_player(p: &mut lua_player) {
-    p.x += 1;
+// FIXME: is there a way to say "immutable Vec, but mutable elements?"
+fn advance_players(players: &mut Vec<LuaPlayer>) {
+    for p in players.iter_mut() {
+        p.x += 1;
+    }
 }
 
-fn main() {
-    let mut player1 = lua_player {
-        lua_state: Lua::new(),
-        x: 30,
-        y: 50,
-    };
-    let mut state = game_state { tick: 0 };
+fn create_lua_player(_file_path: &str, x: i32, y: i32) -> LuaResult<LuaPlayer> {
+    let ls = Lua::new();
+    ls.load_from_std_lib(LuaStdLib::ALL_SAFE)?;
+    let code = std::fs::read_to_string("foo.lua")?;
+    ls.load(&code).exec()?;
+    Ok(LuaPlayer {
+        _lua_state: ls,
+        x,
+        y,
+    })
+}
+
+fn step(state: &mut GameState) {
+    advance_players(&mut state.players);
+}
+
+fn main() -> LuaResult<()> {
+    let player1 = create_lua_player("foo.lua", 30, 50)?;
+    let player2 = create_lua_player("foo.lua", 100, 220)?;
+    let players = vec![player1, player2];
+    let mut state = GameState { tick: 0, players };
     let (mut rl, thread) = raylib::init().size(400, 400).title("hello world").build();
 
     rl.set_target_fps(60);
@@ -61,7 +81,8 @@ fn main() {
         state.tick += 1;
         let mut d = rl.begin_drawing(&thread);
         d.clear_background(Color::GRAY);
-        advance_player(&mut player1);
-        render_player(d, &player1);
+        step(&mut state);
+        render_players(d, &state.players);
     }
+    Ok(())
 }
