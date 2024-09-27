@@ -1,15 +1,39 @@
 use mlua::prelude::*;
 use raylib::prelude::*;
 
-struct GameState {
-    tick: i16,
-    players: Vec<LuaPlayer>,
+struct LuaPlayer {
+    lua: Lua,
+    function_keys: LuaPlayerFunctionKeys,
 }
 
-struct LuaPlayer {
-    _lua_state: Lua,
+struct LuaPlayerFunctionKeys {
+    on_tick: LuaRegistryKey,
+}
+
+impl LuaPlayer {
+    fn new(code: &str) -> LuaResult<Self> {
+        let lua = Lua::new();
+        lua.load_from_std_lib(LuaStdLib::ALL_SAFE)?;
+        let function_keys = {
+            let t: LuaTable = lua.load(code).eval()?;
+            let on_tick_fn: LuaFunction = t.get("on_tick")?;
+            LuaPlayerFunctionKeys {
+                on_tick: lua.create_registry_value(on_tick_fn)?,
+            }
+        };
+        Ok(Self { lua, function_keys })
+    }
+}
+
+struct Player {
+    lua_player: LuaPlayer,
     x: i32,
     y: i32,
+}
+
+struct GameState {
+    tick: i16,
+    players: Vec<Player>,
 }
 
 fn _main_lua() -> LuaResult<()> {
@@ -40,29 +64,22 @@ fn _draw_line_in_direction(
     );
 }
 
-fn render_players(mut d: raylib::drawing::RaylibDrawHandle, players: &Vec<LuaPlayer>) {
+fn render_players(mut d: raylib::drawing::RaylibDrawHandle, players: &Vec<Player>) {
     for p in players {
         d.draw_circle(p.x, p.y, 25.0, Color::GREENYELLOW);
     }
 }
 
 // FIXME: is there a way to say "immutable Vec, but mutable elements?"
-fn advance_players(players: &mut Vec<LuaPlayer>) {
+fn advance_players(players: &mut Vec<Player>) {
     for p in players.iter_mut() {
         p.x += 1;
     }
 }
 
-fn create_lua_player(_file_path: &str, x: i32, y: i32) -> LuaResult<LuaPlayer> {
-    let ls = Lua::new();
-    ls.load_from_std_lib(LuaStdLib::ALL_SAFE)?;
-    let code = std::fs::read_to_string("foo.lua")?;
-    ls.load(&code).exec()?;
-    Ok(LuaPlayer {
-        _lua_state: ls,
-        x,
-        y,
-    })
+fn load_lua_player(file_path: &str) -> LuaResult<LuaPlayer> {
+    let code = std::fs::read_to_string(file_path)?;
+    LuaPlayer::new(&code)
 }
 
 fn step(state: &mut GameState) {
@@ -70,8 +87,16 @@ fn step(state: &mut GameState) {
 }
 
 fn main() -> LuaResult<()> {
-    let player1 = create_lua_player("foo.lua", 30, 50)?;
-    let player2 = create_lua_player("foo.lua", 100, 220)?;
+    let player1 = Player {
+        lua_player: load_lua_player("foo.lua")?,
+        x: 30,
+        y: 50,
+    };
+    let player2 = Player {
+        lua_player: load_lua_player("foo.lua")?,
+        x: 100,
+        y: 220,
+    };
     let players = vec![player1, player2];
     let mut state = GameState { tick: 0, players };
     let (mut rl, thread) = raylib::init().size(400, 400).title("hello world").build();
@@ -85,4 +110,15 @@ fn main() -> LuaResult<()> {
         render_players(d, &state.players);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lua_player_can_be_loaded_from_code() {
+        let _player = LuaPlayer::new("return { on_tick = function(n) print('on_tick') end }")
+            .expect("lua player could not be created");
+    }
 }
