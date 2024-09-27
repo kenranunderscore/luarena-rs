@@ -19,6 +19,16 @@ impl LuaPlayer {
             key: table_key,
         })
     }
+
+    fn table(&self) -> LuaResult<LuaTable> {
+        let t = self.lua.registry_value(&self.key)?;
+        Ok(t)
+    }
+
+    fn on_tick(&self, tick: i32) -> LuaResult<i32> {
+        let res = self.table()?.call_function("on_tick", tick)?;
+        Ok(res)
+    }
 }
 
 struct Player {
@@ -119,14 +129,10 @@ mod tests {
     }
 
     #[test]
-    fn call_lua_player_method() {
+    fn call_on_tick() {
         let player = LuaPlayer::new("return { on_tick = function(n) return n+1 end }")
             .expect("lua player could not be created");
-        let t: LuaTable = player
-            .lua
-            .registry_value(&player.key)
-            .expect("key not found");
-        let res: i32 = t.call_function("on_tick", 17).expect("call failed");
+        let res: i32 = player.on_tick(17).expect("on_tick failed");
         assert_eq!(res, 18);
     }
 }
