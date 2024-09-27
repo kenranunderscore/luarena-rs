@@ -3,25 +3,21 @@ use raylib::prelude::*;
 
 struct LuaPlayer {
     lua: Lua,
-    function_keys: LuaPlayerFunctionKeys,
-}
-
-struct LuaPlayerFunctionKeys {
-    on_tick: LuaRegistryKey,
+    key: LuaRegistryKey,
 }
 
 impl LuaPlayer {
     fn new(code: &str) -> LuaResult<Self> {
         let lua = Lua::new();
         lua.load_from_std_lib(LuaStdLib::ALL_SAFE)?;
-        let function_keys = {
+        let table_key = {
             let t: LuaTable = lua.load(code).eval()?;
-            let on_tick_fn: LuaFunction = t.get("on_tick")?;
-            LuaPlayerFunctionKeys {
-                on_tick: lua.create_registry_value(on_tick_fn)?,
-            }
+            lua.create_registry_value(t)?
         };
-        Ok(Self { lua, function_keys })
+        Ok(Self {
+            lua,
+            key: table_key,
+        })
     }
 }
 
@@ -120,5 +116,17 @@ mod tests {
     fn lua_player_can_be_loaded_from_code() {
         let _player = LuaPlayer::new("return { on_tick = function(n) print('on_tick') end }")
             .expect("lua player could not be created");
+    }
+
+    #[test]
+    fn call_lua_player_method() {
+        let player = LuaPlayer::new("return { on_tick = function(n) return n+1 end }")
+            .expect("lua player could not be created");
+        let t: LuaTable = player
+            .lua
+            .registry_value(&player.key)
+            .expect("key not found");
+        let res: i32 = t.call_function("on_tick", 17).expect("call failed");
+        assert_eq!(res, 18);
     }
 }
