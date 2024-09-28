@@ -1,3 +1,5 @@
+use std::{cell::RefCell, rc::Rc};
+
 use mlua::prelude::*;
 use raylib::prelude::*;
 
@@ -10,6 +12,7 @@ impl LuaPlayer {
     fn new(code: &str) -> LuaResult<Self> {
         let lua = Lua::new();
         lua.load_from_std_lib(LuaStdLib::ALL_SAFE)?;
+
         let table_key = {
             let t: LuaTable = lua.load(code).eval()?;
             lua.create_registry_value(t)?
@@ -33,12 +36,32 @@ impl LuaPlayer {
 
 struct Player {
     lua_player: LuaPlayer,
-    x: i32,
-    y: i32,
+    x: Rc<RefCell<i32>>,
+    y: Rc<RefCell<i32>>,
+}
+
+impl Player {
+    fn register_lua_library(&self) -> LuaResult<()> {
+        {
+            let lua = &self.lua_player.lua;
+            let me = lua.create_table()?;
+
+            let x_ref = Rc::clone(&self.x);
+            let x = lua.create_function(move |_, _: ()| Ok(*x_ref.borrow()))?;
+            me.set("x", x)?;
+
+            let y_ref = Rc::clone(&self.y);
+            let y = lua.create_function(move |_, _: ()| Ok(*y_ref.borrow()))?;
+            me.set("y", y)?;
+
+            lua.globals().set("me", me)?;
+            Ok(())
+        }
+    }
 }
 
 struct GameState {
-    tick: i16,
+    tick: i32,
     players: Vec<Player>,
 }
 
@@ -72,14 +95,15 @@ fn _draw_line_in_direction(
 
 fn render_players(mut d: raylib::drawing::RaylibDrawHandle, players: &Vec<Player>) {
     for p in players {
-        d.draw_circle(p.x, p.y, 25.0, Color::GREENYELLOW);
+        d.draw_circle(*p.x.borrow(), *p.y.borrow(), 25.0, Color::GREENYELLOW);
     }
 }
 
 // FIXME: is there a way to say "immutable Vec, but mutable elements?"
 fn advance_players(players: &mut Vec<Player>) {
     for p in players.iter_mut() {
-        p.x += 1;
+        let mut x = p.x.borrow_mut();
+        *x += 1;
     }
 }
 
@@ -95,15 +119,11 @@ fn step(state: &mut GameState) {
 fn main() -> LuaResult<()> {
     let player1 = Player {
         lua_player: load_lua_player("foo.lua")?,
-        x: 30,
-        y: 50,
+        x: Rc::new(RefCell::new(30)),
+        y: Rc::new(RefCell::new(50)),
     };
-    let player2 = Player {
-        lua_player: load_lua_player("foo.lua")?,
-        x: 100,
-        y: 220,
-    };
-    let players = vec![player1, player2];
+    player1.register_lua_library()?;
+    let players = vec![player1];
     let mut state = GameState { tick: 0, players };
     let (mut rl, thread) = raylib::init().size(400, 400).title("hello world").build();
 
@@ -114,6 +134,8 @@ fn main() -> LuaResult<()> {
         d.clear_background(Color::GRAY);
         step(&mut state);
         render_players(d, &state.players);
+        let p = state.players.first().expect("player here");
+        p.lua_player.on_tick(state.tick)?;
     }
     Ok(())
 }
