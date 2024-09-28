@@ -34,14 +34,14 @@ impl LuaPlayer {
     }
 }
 
-struct Pos {
+struct Point {
     x: i32,
     y: i32,
 }
 
 struct Player {
     lua_player: LuaPlayer,
-    pos: Rc<RefCell<Pos>>,
+    pos: Rc<RefCell<Point>>,
 }
 
 impl Player {
@@ -125,12 +125,12 @@ fn step(state: &mut GameState) {
 fn main() -> LuaResult<()> {
     let player1 = Player {
         lua_player: load_lua_player("foo.lua")?,
-        pos: Rc::new(RefCell::new(Pos { x: 30, y: 50 })),
+        pos: Rc::new(RefCell::new(Point { x: 30, y: 50 })),
     };
     player1.register_lua_library()?;
     let player2 = Player {
         lua_player: load_lua_player("foo.lua")?,
-        pos: Rc::new(RefCell::new(Pos { x: 50, y: 220 })),
+        pos: Rc::new(RefCell::new(Point { x: 50, y: 220 })),
     };
     player2.register_lua_library()?;
 
