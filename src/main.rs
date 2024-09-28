@@ -3,6 +3,31 @@ use std::{cell::RefCell, rc::Rc};
 use mlua::prelude::*;
 use raylib::prelude::*;
 
+#[derive(PartialEq, Debug)]
+enum PlayerCommand {
+    Attack(f32),
+    TurnHead(f32),
+    Move(f32),
+}
+
+impl<'a> FromLua<'a> for PlayerCommand {
+    fn from_lua(value: LuaValue<'a>, _lua: &'a Lua) -> LuaResult<Self> {
+        match value {
+            LuaValue::Table(t) => match t.get::<&str, String>("tag")?.as_str() {
+                "move" => Ok(PlayerCommand::Move(0.7)),
+                "attack" => Ok(PlayerCommand::Attack(0.1)),
+                "turn_head" => Ok(PlayerCommand::TurnHead(-1.1)),
+                s => todo!("invalid tag: {}", s),
+            },
+            _ => Err(mlua::Error::FromLuaConversionError {
+                from: value.type_name(),
+                to: "Foo",
+                message: Some("expected valid player command".to_string()),
+            }),
+        }
+    }
+}
+
 struct LuaPlayer {
     lua: Lua,
     key: LuaRegistryKey,
@@ -28,7 +53,7 @@ impl LuaPlayer {
         Ok(t)
     }
 
-    fn on_tick(&self, tick: i32) -> LuaResult<i32> {
+    fn on_tick(&self, tick: i32) -> LuaResult<PlayerCommand> {
         let res = self.table()?.call_function("on_tick", tick)?;
         Ok(res)
     }
@@ -163,9 +188,10 @@ mod tests {
 
     #[test]
     fn call_on_tick() {
-        let player = LuaPlayer::new("return { on_tick = function(n) return n+1 end }")
-            .expect("lua player could not be created");
-        let res: i32 = player.on_tick(17).expect("on_tick failed");
-        assert_eq!(res, 18);
+        let player =
+            LuaPlayer::new("return { on_tick = function(n) return { tag = \"move\" } end }")
+                .expect("lua player could not be created");
+        let res: PlayerCommand = player.on_tick(17).expect("on_tick failed");
+        assert_eq!(res, PlayerCommand::Move(0.7));
     }
 }
