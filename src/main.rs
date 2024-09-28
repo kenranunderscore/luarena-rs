@@ -36,8 +36,7 @@ impl LuaPlayer {
 
 struct Player {
     lua_player: LuaPlayer,
-    x: Rc<RefCell<i32>>,
-    y: Rc<RefCell<i32>>,
+    pos: Rc<RefCell<(i32, i32)>>,
 }
 
 impl Player {
@@ -46,12 +45,13 @@ impl Player {
             let lua = &self.lua_player.lua;
             let me = lua.create_table()?;
 
-            let x_ref = Rc::clone(&self.x);
-            let x = lua.create_function(move |_, _: ()| Ok(*x_ref.borrow()))?;
+            let pos_ref = Rc::clone(&self.pos);
+            let x = lua.create_function(move |_, _: ()| Ok(pos_ref.borrow().0))?;
             me.set("x", x)?;
 
-            let y_ref = Rc::clone(&self.y);
-            let y = lua.create_function(move |_, _: ()| Ok(*y_ref.borrow()))?;
+            // need to clone the ref again, as we move to make the closure work
+            let pos_ref = Rc::clone(&self.pos);
+            let y = lua.create_function(move |_, _: ()| Ok(pos_ref.borrow().1))?;
             me.set("y", y)?;
 
             lua.globals().set("me", me)?;
@@ -95,15 +95,16 @@ fn _draw_line_in_direction(
 
 fn render_players(mut d: raylib::drawing::RaylibDrawHandle, players: &Vec<Player>) {
     for p in players {
-        d.draw_circle(*p.x.borrow(), *p.y.borrow(), 25.0, Color::GREENYELLOW);
+        let pos = *p.pos.borrow();
+        d.draw_circle(pos.0, pos.1, 25.0, Color::GREENYELLOW);
     }
 }
 
 // FIXME: is there a way to say "immutable Vec, but mutable elements?"
 fn advance_players(players: &mut Vec<Player>) {
     for p in players.iter_mut() {
-        let mut x = p.x.borrow_mut();
-        *x += 1;
+        let mut pos = p.pos.borrow_mut();
+        pos.0 += 1;
     }
 }
 
@@ -119,8 +120,7 @@ fn step(state: &mut GameState) {
 fn main() -> LuaResult<()> {
     let player1 = Player {
         lua_player: load_lua_player("foo.lua")?,
-        x: Rc::new(RefCell::new(30)),
-        y: Rc::new(RefCell::new(50)),
+        pos: Rc::new(RefCell::new((30, 50))),
     };
     player1.register_lua_library()?;
     let players = vec![player1];
