@@ -14,9 +14,11 @@ impl<'a> FromLua<'a> for PlayerCommand {
     fn from_lua(value: LuaValue<'a>, _lua: &'a Lua) -> LuaResult<Self> {
         match value {
             LuaValue::Table(t) => match t.get::<&str, String>("tag")?.as_str() {
-                "move" => Ok(PlayerCommand::Move(0.7)),
-                "attack" => Ok(PlayerCommand::Attack(0.1)),
-                "turn_head" => Ok(PlayerCommand::TurnHead(-1.1)),
+                "move" => Ok(PlayerCommand::Move(t.get("distance")?)),
+                "attack" => Ok(PlayerCommand::Attack(t.get("angle")?)),
+                "turn_head" => Ok(PlayerCommand::TurnHead(t.get("turn_head")?)),
+                "turn_head_right" => Ok(PlayerCommand::TurnHead(t.get("turn_head")?)),
+                "turn_head_left" => Ok(PlayerCommand::TurnHead(-t.get("turn_head")?)),
                 s => todo!("invalid tag: {}", s),
             },
             _ => Err(mlua::Error::FromLuaConversionError {
@@ -24,6 +26,34 @@ impl<'a> FromLua<'a> for PlayerCommand {
                 to: "Foo",
                 message: Some("expected valid player command".to_string()),
             }),
+        }
+    }
+}
+
+fn create_tagged_table<'a>(lua: &'a Lua, tag: &str) -> LuaResult<LuaTable<'a>> {
+    let t = lua.create_table()?;
+    t.set("tag", tag)?;
+    Ok(t)
+}
+
+impl<'a> IntoLua<'a> for PlayerCommand {
+    fn into_lua(self, lua: &'a Lua) -> LuaResult<LuaValue<'a>> {
+        match self {
+            PlayerCommand::Attack(angle) => {
+                let t = create_tagged_table(&lua, "attack")?;
+                t.set("angle", angle)?;
+                Ok(LuaValue::Table(t))
+            }
+            PlayerCommand::TurnHead(angle) => {
+                let t = create_tagged_table(&lua, "turn_head")?;
+                t.set("angle", angle)?;
+                Ok(LuaValue::Table(t))
+            }
+            PlayerCommand::Move(dist) => {
+                let t = create_tagged_table(&lua, "move")?;
+                t.set("distance", dist)?;
+                Ok(LuaValue::Table(t))
+            }
         }
     }
 }
@@ -83,6 +113,17 @@ impl Player {
             let pos_ref = Rc::clone(&self.pos);
             let y = lua.create_function(move |_, _: ()| Ok(pos_ref.borrow().y))?;
             me.set("y", y)?;
+
+            let move_cmd = lua.create_function(|_, dist: f32| Ok(PlayerCommand::Move(dist)))?;
+            me.set("move", move_cmd)?;
+
+            let attack_cmd =
+                lua.create_function(|_, angle: f32| Ok(PlayerCommand::Attack(angle)))?;
+            me.set("attack", attack_cmd)?;
+
+            let turn_head_cmd =
+                lua.create_function(|_, angle: f32| Ok(PlayerCommand::Move(angle)))?;
+            me.set("turn_head", turn_head_cmd)?;
 
             lua.globals().set("me", me)?;
             Ok(())
@@ -188,10 +229,11 @@ mod tests {
 
     #[test]
     fn call_on_tick() {
-        let player =
-            LuaPlayer::new("return { on_tick = function(n) return { tag = \"move\" } end }")
-                .expect("lua player could not be created");
+        let player = LuaPlayer::new(
+            "return { on_tick = function(n) return { tag = \"move\", distance = 13.12 } end }",
+        )
+        .expect("lua player could not be created");
         let res: PlayerCommand = player.on_tick(17).expect("on_tick failed");
-        assert_eq!(res, PlayerCommand::Move(0.7));
+        assert_eq!(res, PlayerCommand::Move(13.12));
     }
 }
