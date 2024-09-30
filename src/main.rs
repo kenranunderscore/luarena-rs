@@ -180,12 +180,12 @@ fn step(state: &mut GameState) {
 
 fn main() -> LuaResult<()> {
     let player1 = Player {
-        lua_player: load_lua_player("foo.lua")?,
+        lua_player: load_lua_player("players/kai.lua")?,
         pos: Rc::new(RefCell::new(Point { x: 30, y: 50 })),
     };
     player1.register_lua_library()?;
     let player2 = Player {
-        lua_player: load_lua_player("foo.lua")?,
+        lua_player: load_lua_player("players/kai.lua")?,
         pos: Rc::new(RefCell::new(Point { x: 50, y: 220 })),
     };
     player2.register_lua_library()?;
