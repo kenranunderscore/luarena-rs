@@ -136,16 +136,6 @@ struct GameState {
     players: Vec<Player>,
 }
 
-fn _main_lua() -> LuaResult<()> {
-    let l = Lua::new();
-    let mt = l.create_table()?;
-    mt.set(1, "one")?;
-    mt.set("two", 2)?;
-    l.globals().set("mmm", mt)?;
-    l.load("for k,v in pairs(mmm) do print(k,v) end").exec()?;
-    Ok(())
-}
-
 fn _draw_line_in_direction(
     mut d: raylib::drawing::RaylibDrawHandle,
     x: i32,
