@@ -3,11 +3,25 @@ use std::{cell::RefCell, rc::Rc};
 use mlua::prelude::*;
 use raylib::prelude::*;
 
+const PLAYER_RADIUS: i32 = 25;
+const WIDTH: i32 = 800;
+const HEIGHT: i32 = 600;
+
 #[derive(PartialEq, Debug)]
 enum PlayerCommand {
     Attack(f32),
     TurnHead(f32),
     Move(f32),
+}
+
+impl PlayerCommand {
+    fn index(&self) -> i32 {
+        match self {
+            PlayerCommand::Move(_) => 0,
+            PlayerCommand::Attack(_) => 1,
+            PlayerCommand::TurnHead(_) => 2,
+        }
+    }
 }
 
 impl<'a> FromLua<'a> for PlayerCommand {
@@ -89,17 +103,62 @@ impl LuaPlayer {
     }
 }
 
+#[derive(Clone, Debug)]
 struct Point {
     x: i32,
     y: i32,
 }
 
+impl Point {
+    fn dist_sqr(&self, p: &Point) -> i32 {
+        (self.x - p.x).pow(2) + (self.y - p.y).pow(2)
+    }
+
+    fn dist(&self, p: &Point) -> f32 {
+        let d = self.dist_sqr(p) as f32;
+        d.sqrt()
+    }
+}
+
+struct PlayerIntent {
+    distance: f32,
+    head_angle: f32,
+    attack_angle: f32,
+    attack: bool,
+}
+
+impl Default for PlayerIntent {
+    fn default() -> Self {
+        Self {
+            distance: 0.0,
+            head_angle: 0.0,
+            attack_angle: 0.0,
+            attack: false,
+        }
+    }
+}
+
 struct Player {
+    id: u8,
     lua_player: LuaPlayer,
     pos: Rc<RefCell<Point>>,
+    next_pos: Point,
+    intent: PlayerIntent,
 }
 
 impl Player {
+    fn new(file_path: &str, id: u8, x: i32, y: i32) -> LuaResult<Player> {
+        let res = Self {
+            id,
+            lua_player: load_lua_player(file_path)?,
+            pos: Rc::new(RefCell::new(Point { x, y })),
+            next_pos: Point { x, y },
+            intent: Default::default(),
+        };
+        res.register_lua_library()?;
+        Ok(res)
+    }
+
     fn register_lua_library(&self) -> LuaResult<()> {
         {
             let lua = &self.lua_player.lua;
@@ -133,7 +192,18 @@ impl Player {
 
 struct GameState {
     tick: i32,
+    round: i32,
     players: Vec<Player>,
+}
+
+impl GameState {
+    fn new() -> GameState {
+        Self {
+            tick: 0,
+            round: 1,
+            players: Vec::new(),
+        }
+    }
 }
 
 fn _draw_line_in_direction(
@@ -161,48 +231,176 @@ fn render_players(mut d: raylib::drawing::RaylibDrawHandle, players: &Vec<Player
     }
 }
 
-// FIXME: is there a way to say "immutable Vec, but mutable elements?"
-fn advance_players(players: &mut Vec<Player>) {
-    for p in players.iter_mut() {
-        let mut pos = p.pos.borrow_mut();
-        pos.x += 1;
-    }
-}
-
 fn load_lua_player(file_path: &str) -> LuaResult<LuaPlayer> {
     let code = std::fs::read_to_string(file_path)?;
     LuaPlayer::new(&code)
 }
 
-fn step(state: &mut GameState) {
-    advance_players(&mut state.players);
+fn reduce_commands(commands: &mut Vec<PlayerCommand>) {
+    commands.sort_by_key(|cmd| cmd.index());
+}
+
+fn valid_position(p: &Point) -> bool {
+    p.x >= PLAYER_RADIUS
+        && p.x <= WIDTH - PLAYER_RADIUS
+        && p.y >= PLAYER_RADIUS
+        && p.y <= HEIGHT - PLAYER_RADIUS
+}
+
+enum GameEvent {
+    Tick(i32),
+    RoundStarted(i32),
+    PlayerMoved(u8, Point),
+}
+
+fn move_players(state: &mut GameState, event_manager: &mut EventManager) {
+    // FIXME: refactor: probably no need to mutate players for the next
+    // positions, or even keep them in there as state at all!
+    for player in state.players.iter_mut() {
+        let p = player.pos.borrow();
+        let next_pos = Point {
+            x: p.x + player.intent.distance.round() as i32,
+            y: p.y,
+        };
+        if valid_position(&next_pos) {
+            player.next_pos = next_pos;
+        } else {
+            player.next_pos = p.clone();
+        }
+    }
+
+    let next_positions: Vec<(u8, Point)> = state
+        .players
+        .iter()
+        .map(|player| (player.id, player.next_pos.clone()))
+        .collect();
+    state.players.iter_mut().for_each(|player| {
+        if !next_positions.iter().any(|(id, next_pos)| {
+            *id != player.id && players_collide(&player.pos.borrow(), next_pos)
+        }) {
+            let mut pos = player.pos.borrow_mut();
+            pos.x = player.next_pos.x;
+            pos.y = player.next_pos.y;
+            event_manager.record_event(GameEvent::PlayerMoved(player.id, pos.clone()));
+        }
+    });
+}
+
+fn players_collide(p: &Point, q: &Point) -> bool {
+    p.dist(q) <= 2.0 * (PLAYER_RADIUS as f32)
+}
+
+#[derive(Debug)]
+enum PlayerEvent {
+    Tick(i32),
+    RoundStarted(i32),
+}
+
+fn game_events_to_player_events(
+    _player: &Player,
+    game_events: &Vec<GameEvent>,
+) -> Vec<PlayerEvent> {
+    // FIXME: when to generate enemy_seen events?
+    game_events.iter().fold(Vec::new(), |mut acc, e| match e {
+        GameEvent::Tick(n) => {
+            acc.push(PlayerEvent::Tick(*n));
+            acc
+        }
+        GameEvent::RoundStarted(n) => {
+            acc.push(PlayerEvent::RoundStarted(*n));
+            acc
+        }
+        GameEvent::PlayerMoved(_other, _pos) => acc,
+    })
+}
+
+fn dispatch_player_events(
+    player: &Player,
+    player_events: Vec<PlayerEvent>,
+) -> LuaResult<Vec<PlayerCommand>> {
+    let mut commands = Vec::new();
+    for e in player_events.iter() {
+        match e {
+            PlayerEvent::Tick(n) => commands.append(&mut player.lua_player.on_tick(*n)?),
+            PlayerEvent::RoundStarted(_) => todo!("round started handler"),
+        }
+    }
+    Ok(commands)
+}
+
+fn step(mut state: &mut GameState, mut event_manager: &mut EventManager) -> LuaResult<()> {
+    event_manager.next_tick(state);
+    move_players(&mut state, &mut event_manager);
+    let game_events = &event_manager.current_events;
+    for player in state.players.iter_mut() {
+        // FIXME: sort events
+        let player_events = game_events_to_player_events(player, game_events);
+        let mut commands = dispatch_player_events(player, player_events)?;
+        reduce_commands(&mut commands);
+        // FIXME: reduce commands
+        for cmd in commands.iter() {
+            match cmd {
+                PlayerCommand::Attack(angle) => {
+                    player.intent.attack_angle = *angle;
+                    player.intent.attack = true;
+                }
+                PlayerCommand::TurnHead(angle) => player.intent.head_angle = *angle,
+                PlayerCommand::Move(dist) => player.intent.distance = *dist,
+            }
+        }
+    }
+    Ok(())
+}
+
+struct EventManager {
+    current_events: Vec<GameEvent>,
+}
+
+impl EventManager {
+    fn new() -> EventManager {
+        Self {
+            current_events: vec![],
+        }
+    }
+
+    // FIXME: don't pass the whole game state
+    fn next_tick(&mut self, state: &GameState) {
+        self.current_events = tick_events(state);
+    }
+
+    fn record_event(&mut self, event: GameEvent) {
+        self.current_events.push(event);
+    }
+}
+
+fn tick_events(state: &GameState) -> Vec<GameEvent> {
+    let mut events = vec![GameEvent::Tick(state.tick)];
+    if state.tick == 0 {
+        events.push(GameEvent::RoundStarted(state.round));
+    }
+    events
 }
 
 fn main() -> LuaResult<()> {
-    let player1 = Player {
-        lua_player: load_lua_player("players/kai.lua")?,
-        pos: Rc::new(RefCell::new(Point { x: 30, y: 50 })),
-    };
-    player1.register_lua_library()?;
-    // let player2 = Player {
-    //     lua_player: load_lua_player("players/kai.lua")?,
-    //     pos: Rc::new(RefCell::new(Point { x: 50, y: 220 })),
-    // };
-    // player2.register_lua_library()?;
+    // FIXME: IDs
+    let player1 = Player::new("players/kai.lua", 1, 30, 50)?;
+    let player2 = Player::new("players/lloyd.lua", 2, 400, 50)?;
 
-    let players = vec![player1];
-    let mut state = GameState { tick: 0, players };
-    let (mut rl, thread) = raylib::init().size(400, 400).title("hello world").build();
+    let mut state = GameState::new();
+    state.players = vec![player1, player2];
+    let (mut rl, thread) = raylib::init()
+        .size(WIDTH, HEIGHT)
+        .title("hello world")
+        .build();
+    let mut event_manager = EventManager::new();
 
     rl.set_target_fps(60);
     while !rl.window_should_close() {
         state.tick += 1;
         let mut d = rl.begin_drawing(&thread);
         d.clear_background(Color::GRAY);
-        step(&mut state);
+        step(&mut state, &mut event_manager)?;
         render_players(d, &state.players);
-        let p = state.players.first().expect("player here");
-        let _commands = p.lua_player.on_tick(state.tick)?;
     }
     Ok(())
 }
@@ -213,8 +411,7 @@ mod tests {
 
     #[test]
     fn lua_player_can_be_loaded_from_code() {
-        let _player = LuaPlayer::new("return { on_tick = function(n) print('on_tick') end }")
-            .expect("lua player could not be created");
+        LuaPlayer::new("return {}").expect("lua player could not be created");
     }
 
     #[test]

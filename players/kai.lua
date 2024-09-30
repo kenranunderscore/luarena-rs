@@ -7,4 +7,8 @@ function m.on_tick(tick)
 	return { me.move(3.14), me.turn_head(0.04) }
 end
 
+function m.on_enemy_seen(x, y)
+	return {}
+end
+
 return m
