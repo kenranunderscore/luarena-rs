@@ -16,9 +16,9 @@ impl<'a> FromLua<'a> for PlayerCommand {
             LuaValue::Table(t) => match t.get::<&str, String>("tag")?.as_str() {
                 "move" => Ok(PlayerCommand::Move(t.get("distance")?)),
                 "attack" => Ok(PlayerCommand::Attack(t.get("angle")?)),
-                "turn_head" => Ok(PlayerCommand::TurnHead(t.get("turn_head")?)),
-                "turn_head_right" => Ok(PlayerCommand::TurnHead(t.get("turn_head")?)),
-                "turn_head_left" => Ok(PlayerCommand::TurnHead(-t.get("turn_head")?)),
+                "turn_head" => Ok(PlayerCommand::TurnHead(t.get("angle")?)),
+                "turn_head_right" => Ok(PlayerCommand::TurnHead(t.get("angle")?)),
+                "turn_head_left" => Ok(PlayerCommand::TurnHead(-t.get("angle")?)),
                 s => todo!("invalid tag: {}", s),
             },
             _ => Err(mlua::Error::FromLuaConversionError {
@@ -83,8 +83,8 @@ impl LuaPlayer {
         Ok(t)
     }
 
-    fn on_tick(&self, tick: i32) -> LuaResult<PlayerCommand> {
-        let res = self.table()?.call_function("on_tick", tick)?;
+    fn on_tick(&self, tick: i32) -> LuaResult<Vec<PlayerCommand>> {
+        let res: Vec<PlayerCommand> = self.table()?.call_function("on_tick", tick)?;
         Ok(res)
     }
 }
@@ -122,7 +122,7 @@ impl Player {
             me.set("attack", attack_cmd)?;
 
             let turn_head_cmd =
-                lua.create_function(|_, angle: f32| Ok(PlayerCommand::Move(angle)))?;
+                lua.create_function(|_, angle: f32| Ok(PlayerCommand::TurnHead(angle)))?;
             me.set("turn_head", turn_head_cmd)?;
 
             lua.globals().set("me", me)?;
@@ -184,13 +184,13 @@ fn main() -> LuaResult<()> {
         pos: Rc::new(RefCell::new(Point { x: 30, y: 50 })),
     };
     player1.register_lua_library()?;
-    let player2 = Player {
-        lua_player: load_lua_player("players/kai.lua")?,
-        pos: Rc::new(RefCell::new(Point { x: 50, y: 220 })),
-    };
-    player2.register_lua_library()?;
+    // let player2 = Player {
+    //     lua_player: load_lua_player("players/kai.lua")?,
+    //     pos: Rc::new(RefCell::new(Point { x: 50, y: 220 })),
+    // };
+    // player2.register_lua_library()?;
 
-    let players = vec![player1, player2];
+    let players = vec![player1];
     let mut state = GameState { tick: 0, players };
     let (mut rl, thread) = raylib::init().size(400, 400).title("hello world").build();
 
@@ -202,7 +202,7 @@ fn main() -> LuaResult<()> {
         step(&mut state);
         render_players(d, &state.players);
         let p = state.players.first().expect("player here");
-        p.lua_player.on_tick(state.tick)?;
+        let _commands = p.lua_player.on_tick(state.tick)?;
     }
     Ok(())
 }
@@ -220,10 +220,11 @@ mod tests {
     #[test]
     fn call_on_tick() {
         let player = LuaPlayer::new(
-            "return { on_tick = function(n) return { tag = \"move\", distance = 13.12 } end }",
+            "return { on_tick = function(n) return { { tag = \"move\", distance = 13.12 } } end }",
         )
         .expect("lua player could not be created");
-        let res: PlayerCommand = player.on_tick(17).expect("on_tick failed");
-        assert_eq!(res, PlayerCommand::Move(13.12));
+        let res: Vec<PlayerCommand> = player.on_tick(17).expect("on_tick failed");
+        let cmd = res.first().expect("some command");
+        assert_eq!(*cmd, PlayerCommand::Move(13.12));
     }
 }
