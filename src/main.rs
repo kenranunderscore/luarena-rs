@@ -10,7 +10,9 @@ const HEIGHT: i32 = 600;
 #[derive(PartialEq, Debug)]
 enum PlayerCommand {
     Attack(f32),
+    Turn(f32),
     TurnHead(f32),
+    TurnArms(f32),
     Move(f32),
 }
 
@@ -19,7 +21,9 @@ impl PlayerCommand {
         match self {
             PlayerCommand::Move(_) => 0,
             PlayerCommand::Attack(_) => 1,
-            PlayerCommand::TurnHead(_) => 2,
+            PlayerCommand::Turn(_) => 2,
+            PlayerCommand::TurnHead(_) => 3,
+            PlayerCommand::TurnArms(_) => 4,
         }
     }
 }
@@ -30,9 +34,9 @@ impl<'a> FromLua<'a> for PlayerCommand {
             LuaValue::Table(t) => match t.get::<&str, String>("tag")?.as_str() {
                 "move" => Ok(PlayerCommand::Move(t.get("distance")?)),
                 "attack" => Ok(PlayerCommand::Attack(t.get("angle")?)),
+                "turn" => Ok(PlayerCommand::Turn(t.get("angle")?)),
                 "turn_head" => Ok(PlayerCommand::TurnHead(t.get("angle")?)),
-                "turn_head_right" => Ok(PlayerCommand::TurnHead(t.get("angle")?)),
-                "turn_head_left" => Ok(PlayerCommand::TurnHead(-t.get("angle")?)),
+                "turn_arms" => Ok(PlayerCommand::TurnArms(t.get("angle")?)),
                 s => todo!("invalid tag: {}", s),
             },
             _ => Err(mlua::Error::FromLuaConversionError {
@@ -58,8 +62,18 @@ impl<'a> IntoLua<'a> for PlayerCommand {
                 t.set("angle", angle)?;
                 Ok(LuaValue::Table(t))
             }
+            PlayerCommand::Turn(angle) => {
+                let t = create_tagged_table(&lua, "turn")?;
+                t.set("angle", angle)?;
+                Ok(LuaValue::Table(t))
+            }
             PlayerCommand::TurnHead(angle) => {
                 let t = create_tagged_table(&lua, "turn_head")?;
+                t.set("angle", angle)?;
+                Ok(LuaValue::Table(t))
+            }
+            PlayerCommand::TurnArms(angle) => {
+                let t = create_tagged_table(&lua, "turn_arms")?;
                 t.set("angle", angle)?;
                 Ok(LuaValue::Table(t))
             }
@@ -122,18 +136,20 @@ impl Point {
 
 struct PlayerIntent {
     distance: f32,
-    head_angle: f32,
-    attack_angle: f32,
     attack: bool,
+    turn_angle: f32,
+    turn_head_angle: f32,
+    turn_arms_angle: f32,
 }
 
 impl Default for PlayerIntent {
     fn default() -> Self {
         Self {
             distance: 0.0,
-            head_angle: 0.0,
-            attack_angle: 0.0,
+            turn_head_angle: 0.0,
+            turn_arms_angle: 0.0,
             attack: false,
+            turn_angle: 0.0,
         }
     }
 }
@@ -142,8 +158,11 @@ struct Player {
     id: u8,
     lua_player: LuaPlayer,
     pos: Rc<RefCell<Point>>,
-    next_pos: Point,
+    heading: f32,
+    head_heading: f32,
+    arms_heading: f32,
     intent: PlayerIntent,
+    next_pos: Point,
 }
 
 impl Player {
@@ -152,6 +171,9 @@ impl Player {
             id,
             lua_player: load_lua_player(file_path)?,
             pos: Rc::new(RefCell::new(Point { x, y })),
+            heading: 0.0,
+            head_heading: 0.0,
+            arms_heading: 0.0,
             next_pos: Point { x, y },
             intent: Default::default(),
         };
@@ -180,9 +202,16 @@ impl Player {
                 lua.create_function(|_, angle: f32| Ok(PlayerCommand::Attack(angle)))?;
             me.set("attack", attack_cmd)?;
 
+            let turn_cmd = lua.create_function(|_, angle: f32| Ok(PlayerCommand::Turn(angle)))?;
+            me.set("turn", &turn_cmd)?;
+
             let turn_head_cmd =
                 lua.create_function(|_, angle: f32| Ok(PlayerCommand::TurnHead(angle)))?;
             me.set("turn_head", turn_head_cmd)?;
+
+            let turn_arms_cmd =
+                lua.create_function(|_, angle: f32| Ok(PlayerCommand::TurnArms(angle)))?;
+            me.set("turn_arms", turn_arms_cmd)?;
 
             lua.globals().set("me", me)?;
             Ok(())
@@ -206,28 +235,74 @@ impl GameState {
     }
 }
 
-fn _draw_line_in_direction(
-    mut d: raylib::drawing::RaylibDrawHandle,
+fn draw_line_in_direction(
+    d: &mut raylib::drawing::RaylibDrawHandle,
     x: i32,
     y: i32,
     angle: f32,
     length: f32,
+    color: raylib::color::Color,
 ) {
     let dx = angle.sin() * length;
     let dy = angle.cos() * length;
-    d.draw_line(
-        x,
-        y,
-        x + dx.round() as i32,
-        y - dy.round() as i32,
-        Color::RED,
-    );
+    d.draw_line(x, y, x + dx.round() as i32, y - dy.round() as i32, color);
 }
 
-fn render_players(mut d: raylib::drawing::RaylibDrawHandle, players: &Vec<Player>) {
-    for p in players {
-        let pos = p.pos.borrow();
-        d.draw_circle(pos.x, pos.y, 25.0, Color::GREENYELLOW);
+mod render {
+    use super::*;
+    use raylib::prelude::*;
+
+    fn player_vision(d: &mut raylib::drawing::RaylibDrawHandle, x: i32, y: i32, heading: f32) {
+        draw_line_in_direction(d, x, y, heading, 2.0 * PLAYER_RADIUS as f32, Color::RED);
+    }
+
+    fn player_arms(d: &mut raylib::drawing::RaylibDrawHandle, x: i32, y: i32, heading: f32) {
+        draw_line_in_direction(d, x, y, heading, 1.5 * PLAYER_RADIUS as f32, Color::YELLOW);
+    }
+
+    fn heading(d: &mut raylib::drawing::RaylibDrawHandle, x: i32, y: i32, heading: f32) {
+        draw_line_in_direction(
+            d,
+            x,
+            y,
+            heading,
+            1.6 * PLAYER_RADIUS as f32,
+            Color::GREENYELLOW,
+        );
+        draw_line_in_direction(
+            d,
+            x,
+            y,
+            heading + PI as f32,
+            1.2 * PLAYER_RADIUS as f32,
+            Color::GREENYELLOW,
+        );
+        draw_line_in_direction(
+            d,
+            x,
+            y,
+            heading + PI as f32 / 2.0,
+            1.2 * PLAYER_RADIUS as f32,
+            Color::GREENYELLOW,
+        );
+        draw_line_in_direction(
+            d,
+            x,
+            y,
+            heading - PI as f32 / 2.0,
+            1.2 * PLAYER_RADIUS as f32,
+            Color::GREENYELLOW,
+        );
+    }
+
+    pub fn players(d: &mut raylib::drawing::RaylibDrawHandle, players: &Vec<Player>) {
+        for p in players {
+            let pos = p.pos.borrow();
+            player_vision(d, pos.x, pos.y, p.head_heading);
+            player_arms(d, pos.x, pos.y, p.arms_heading);
+            heading(d, pos.x, pos.y, p.heading);
+            d.draw_circle(pos.x, pos.y, 25.0, Color::GREENYELLOW);
+        }
     }
 }
 
@@ -253,11 +328,12 @@ enum GameEvent {
     PlayerMoved(u8, Point),
 }
 
-fn move_players(state: &mut GameState, event_manager: &mut EventManager) {
+fn advance_players(state: &mut GameState, event_manager: &mut EventManager) {
     // FIXME: refactor: probably no need to mutate players for the next
     // positions, or even keep them in there as state at all!
     for player in state.players.iter_mut() {
         let p = player.pos.borrow();
+
         let next_pos = Point {
             x: p.x + player.intent.distance.round() as i32,
             y: p.y,
@@ -267,6 +343,10 @@ fn move_players(state: &mut GameState, event_manager: &mut EventManager) {
         } else {
             player.next_pos = p.clone();
         }
+
+        player.heading += player.intent.turn_angle;
+        player.head_heading += player.intent.turn_head_angle;
+        player.arms_heading += player.intent.turn_arms_angle;
     }
 
     let next_positions: Vec<(u8, Point)> = state
@@ -330,21 +410,22 @@ fn dispatch_player_events(
 
 fn step(state: &mut GameState, event_manager: &mut EventManager) -> LuaResult<()> {
     event_manager.next_tick(state);
-    move_players(state, event_manager);
+    advance_players(state, event_manager);
     let game_events = &event_manager.current_events;
     for player in state.players.iter_mut() {
         // FIXME: sort events
         let player_events = game_events_to_player_events(player, game_events);
         let mut commands = dispatch_player_events(player, player_events)?;
         reduce_commands(&mut commands);
-        // FIXME: reduce commands
         for cmd in commands.iter() {
             match cmd {
                 PlayerCommand::Attack(angle) => {
-                    player.intent.attack_angle = *angle;
+                    player.intent.turn_arms_angle = *angle;
                     player.intent.attack = true;
                 }
-                PlayerCommand::TurnHead(angle) => player.intent.head_angle = *angle,
+                PlayerCommand::Turn(angle) => player.intent.turn_angle = *angle,
+                PlayerCommand::TurnHead(angle) => player.intent.turn_head_angle = *angle,
+                PlayerCommand::TurnArms(angle) => player.intent.turn_arms_angle = *angle,
                 PlayerCommand::Move(dist) => player.intent.distance = *dist,
             }
         }
@@ -398,9 +479,9 @@ fn main() -> LuaResult<()> {
     while !rl.window_should_close() {
         state.tick += 1;
         let mut d = rl.begin_drawing(&thread);
-        d.clear_background(Color::GRAY);
+        d.clear_background(Color::BLACK);
         step(&mut state, &mut event_manager)?;
-        render_players(d, &state.players);
+        render::players(&mut d, &state.players);
     }
     Ok(())
 }
