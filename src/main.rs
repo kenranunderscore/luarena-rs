@@ -328,9 +328,9 @@ fn dispatch_player_events(
     Ok(commands)
 }
 
-fn step(mut state: &mut GameState, mut event_manager: &mut EventManager) -> LuaResult<()> {
+fn step(state: &mut GameState, event_manager: &mut EventManager) -> LuaResult<()> {
     event_manager.next_tick(state);
-    move_players(&mut state, &mut event_manager);
+    move_players(state, event_manager);
     let game_events = &event_manager.current_events;
     for player in state.players.iter_mut() {
         // FIXME: sort events
