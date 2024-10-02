@@ -4,6 +4,8 @@ use mlua::prelude::*;
 use raylib::prelude::*;
 
 const MAX_TURN_RATE: f32 = 0.05;
+const MAX_HEAD_TURN_RATE: f32 = 0.1;
+const MAX_ARMS_TURN_RATE: f32 = 0.08;
 const PLAYER_RADIUS: i32 = 50;
 const WIDTH: i32 = 800;
 const HEIGHT: i32 = 600;
@@ -240,6 +242,14 @@ impl Player {
         Ok(res)
     }
 
+    fn effective_head_heading(&self) -> f32 {
+        normalize_abs_angle(self.heading + self.head_heading)
+    }
+
+    fn effective_arms_heading(&self) -> f32 {
+        normalize_abs_angle(self.heading + self.arms_heading)
+    }
+
     fn register_lua_library(&self) -> LuaResult<()> {
         {
             let lua = &self.lua_player.lua;
@@ -373,8 +383,8 @@ mod render {
     pub fn players(d: &mut raylib::drawing::RaylibDrawHandle, players: &Vec<Player>) {
         for p in players {
             let pos = p.pos.borrow();
-            player_vision(d, pos.x, pos.y, p.head_heading);
-            player_arms(d, pos.x, pos.y, p.arms_heading);
+            player_vision(d, pos.x, pos.y, p.effective_head_heading());
+            player_arms(d, pos.x, pos.y, p.effective_arms_heading());
             heading(d, pos.x, pos.y, p.heading);
             d.draw_circle(pos.x, pos.y, PLAYER_RADIUS as f32, Color::GREENYELLOW);
         }
@@ -425,41 +435,64 @@ fn advance_players(state: &mut GameState, event_manager: &mut EventManager) {
     // FIXME: refactor: probably no need to mutate players for the next
     // positions, or even keep them in there as state at all!
     for player in state.players.iter_mut() {
-        let dangle = clamp(player.intent.turn_angle, -MAX_TURN_RATE, MAX_TURN_RATE);
-        player.intent.turn_angle = if player.intent.turn_angle.abs() < MAX_TURN_RATE {
-            0.0
-        } else {
-            player.intent.turn_angle - dangle
-        };
-        let heading = normalize_abs_angle(player.heading + dangle);
-        player.heading = heading;
+        {
+            let delta = clamp(player.intent.turn_angle, -MAX_TURN_RATE, MAX_TURN_RATE);
+            player.intent.turn_angle = if player.intent.turn_angle.abs() < MAX_TURN_RATE {
+                0.0
+            } else {
+                player.intent.turn_angle - delta
+            };
+            let heading = normalize_abs_angle(player.heading + delta);
+            player.heading = heading;
 
-        let velocity = f32::min(player.intent.distance, MAX_VELOCITY);
-        let dir_heading = match player.intent.direction {
-            MovementDirection::Forward => 0.0,
-            MovementDirection::Backward => PI as f32,
-            MovementDirection::Left => -HALF_PI,
-            MovementDirection::Right => HALF_PI,
-        };
-        let movement_heading = heading + dir_heading;
-        let remaining_distance = f32::max(player.intent.distance - velocity, 0.0);
-        let p = player.pos.borrow();
-        let dx = movement_heading.sin() * velocity;
-        let dy = -movement_heading.cos() * velocity;
-        let next_pos = Point {
-            x: p.x + dx.round() as i32,
-            y: p.y + dy.round() as i32,
-        };
-        if valid_position(&next_pos) {
-            player.next_move.pos = next_pos;
-            player.next_move.distance = remaining_distance;
-        } else {
-            player.next_move.pos = p.clone();
-            player.next_move.distance = player.intent.distance;
+            let velocity = f32::min(player.intent.distance, MAX_VELOCITY);
+            let dir_heading = match player.intent.direction {
+                MovementDirection::Forward => 0.0,
+                MovementDirection::Backward => PI as f32,
+                MovementDirection::Left => -HALF_PI,
+                MovementDirection::Right => HALF_PI,
+            };
+            let movement_heading = heading + dir_heading;
+            let remaining_distance = f32::max(player.intent.distance - velocity, 0.0);
+            let p = player.pos.borrow();
+            let dx = movement_heading.sin() * velocity;
+            let dy = -movement_heading.cos() * velocity;
+            let next_pos = Point {
+                x: p.x + dx.round() as i32,
+                y: p.y + dy.round() as i32,
+            };
+            if valid_position(&next_pos) {
+                player.next_move.pos = next_pos;
+                player.next_move.distance = remaining_distance;
+            } else {
+                player.next_move.pos = p.clone();
+                player.next_move.distance = player.intent.distance;
+            }
         }
 
-        player.head_heading += player.intent.turn_head_angle;
-        player.arms_heading += player.intent.turn_arms_angle;
+        {
+            let delta = clamp(
+                player.intent.turn_head_angle,
+                -MAX_HEAD_TURN_RATE,
+                MAX_HEAD_TURN_RATE,
+            );
+            let heading = clamp_turn_angle(player.head_heading + delta);
+            let remaining = clamp_turn_angle(player.head_heading + delta) - heading;
+            player.head_heading = heading;
+            player.intent.turn_head_angle = remaining;
+        }
+
+        {
+            let delta = clamp(
+                player.intent.turn_arms_angle,
+                -MAX_ARMS_TURN_RATE,
+                MAX_ARMS_TURN_RATE,
+            );
+            let heading = clamp_turn_angle(player.arms_heading + delta);
+            let remaining = clamp_turn_angle(player.arms_heading + delta) - heading;
+            player.arms_heading = heading;
+            player.intent.turn_arms_angle = remaining;
+        }
     }
 
     let next_positions: Vec<(u8, NextMove)> = state

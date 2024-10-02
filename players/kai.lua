@@ -6,10 +6,8 @@ function m.on_tick(tick)
 	-- print("  Current y: " .. me.y())
 	if tick < 20 then
 		return { me.move_right(3.5) }
-	elseif tick > 200 then
-		return { me.move_backward(3.5) }
-    else
-		return {}
+	else
+		return { me.turn(0.1), me.turn_head(-0.02) }
 	end
 end
 
