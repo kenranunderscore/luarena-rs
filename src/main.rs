@@ -3,9 +3,52 @@ use std::{cell::RefCell, rc::Rc};
 use mlua::prelude::*;
 use raylib::prelude::*;
 
-const PLAYER_RADIUS: i32 = 25;
+const MAX_TURN_RATE: f32 = 0.05;
+const PLAYER_RADIUS: i32 = 50;
 const WIDTH: i32 = 800;
 const HEIGHT: i32 = 600;
+const HALF_PI: f32 = PI as f32 / 2.0;
+const TWO_PI: f32 = PI as f32 * 2.0;
+const MAX_VELOCITY: f32 = 1.0;
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+enum MovementDirection {
+    Forward,
+    Backward,
+    Left,
+    Right,
+}
+
+impl<'a> FromLua<'a> for MovementDirection {
+    fn from_lua(value: LuaValue<'a>, _lua: &'a Lua) -> LuaResult<Self> {
+        match value {
+            LuaValue::String(s) => match s.to_str()? {
+                "forward" => Ok(MovementDirection::Forward),
+                "backward" => Ok(MovementDirection::Backward),
+                "left" => Ok(MovementDirection::Left),
+                "right" => Ok(MovementDirection::Right),
+                other => todo!("invalid direction: {other}"),
+            },
+            _ => Err(mlua::Error::FromLuaConversionError {
+                from: value.type_name(),
+                to: "MovementDirection",
+                message: Some("expected valid direction".to_string()),
+            }),
+        }
+    }
+}
+
+impl<'a> IntoLua<'a> for MovementDirection {
+    fn into_lua(self, lua: &'a Lua) -> LuaResult<LuaValue<'a>> {
+        let s = match self {
+            MovementDirection::Forward => "forward",
+            MovementDirection::Backward => "backward",
+            MovementDirection::Left => "left",
+            MovementDirection::Right => "right",
+        };
+        s.into_lua(lua)
+    }
+}
 
 #[derive(PartialEq, Debug)]
 enum PlayerCommand {
@@ -13,13 +56,13 @@ enum PlayerCommand {
     Turn(f32),
     TurnHead(f32),
     TurnArms(f32),
-    Move(f32),
+    Move(MovementDirection, f32),
 }
 
 impl PlayerCommand {
     fn index(&self) -> i32 {
         match self {
-            PlayerCommand::Move(_) => 0,
+            PlayerCommand::Move(_, _) => 0,
             PlayerCommand::Attack(_) => 1,
             PlayerCommand::Turn(_) => 2,
             PlayerCommand::TurnHead(_) => 3,
@@ -32,16 +75,20 @@ impl<'a> FromLua<'a> for PlayerCommand {
     fn from_lua(value: LuaValue<'a>, _lua: &'a Lua) -> LuaResult<Self> {
         match value {
             LuaValue::Table(t) => match t.get::<&str, String>("tag")?.as_str() {
-                "move" => Ok(PlayerCommand::Move(t.get("distance")?)),
+                "move" => {
+                    let dist = t.get("distance")?;
+                    let dir: MovementDirection = t.get("direction")?;
+                    Ok(PlayerCommand::Move(dir, dist))
+                }
                 "attack" => Ok(PlayerCommand::Attack(t.get("angle")?)),
                 "turn" => Ok(PlayerCommand::Turn(t.get("angle")?)),
                 "turn_head" => Ok(PlayerCommand::TurnHead(t.get("angle")?)),
                 "turn_arms" => Ok(PlayerCommand::TurnArms(t.get("angle")?)),
-                s => todo!("invalid tag: {}", s),
+                s => todo!("invalid tag: {s}"),
             },
             _ => Err(mlua::Error::FromLuaConversionError {
                 from: value.type_name(),
-                to: "Foo",
+                to: "PlayerCommand",
                 message: Some("expected valid player command".to_string()),
             }),
         }
@@ -77,9 +124,10 @@ impl<'a> IntoLua<'a> for PlayerCommand {
                 t.set("angle", angle)?;
                 Ok(LuaValue::Table(t))
             }
-            PlayerCommand::Move(dist) => {
+            PlayerCommand::Move(dir, dist) => {
                 let t = create_tagged_table(&lua, "move")?;
                 t.set("distance", dist)?;
+                t.set("direction", dir)?;
                 Ok(LuaValue::Table(t))
             }
         }
@@ -135,6 +183,7 @@ impl Point {
 }
 
 struct PlayerIntent {
+    direction: MovementDirection,
     distance: f32,
     attack: bool,
     turn_angle: f32,
@@ -145,6 +194,7 @@ struct PlayerIntent {
 impl Default for PlayerIntent {
     fn default() -> Self {
         Self {
+            direction: MovementDirection::Forward,
             distance: 0.0,
             turn_head_angle: 0.0,
             turn_arms_angle: 0.0,
@@ -152,6 +202,12 @@ impl Default for PlayerIntent {
             turn_angle: 0.0,
         }
     }
+}
+
+#[derive(Clone)]
+struct NextMove {
+    pos: Point,
+    distance: f32,
 }
 
 struct Player {
@@ -162,7 +218,7 @@ struct Player {
     head_heading: f32,
     arms_heading: f32,
     intent: PlayerIntent,
-    next_pos: Point,
+    next_move: NextMove,
 }
 
 impl Player {
@@ -174,7 +230,10 @@ impl Player {
             heading: 0.0,
             head_heading: 0.0,
             arms_heading: 0.0,
-            next_pos: Point { x, y },
+            next_move: NextMove {
+                pos: Point { x, y },
+                distance: 0.0,
+            },
             intent: Default::default(),
         };
         res.register_lua_library()?;
@@ -195,8 +254,25 @@ impl Player {
             let y = lua.create_function(move |_, _: ()| Ok(pos_ref.borrow().y))?;
             me.set("y", y)?;
 
-            let move_cmd = lua.create_function(|_, dist: f32| Ok(PlayerCommand::Move(dist)))?;
+            let move_cmd = lua.create_function(|_, dist: f32| {
+                Ok(PlayerCommand::Move(MovementDirection::Forward, dist))
+            })?;
             me.set("move", move_cmd)?;
+
+            let move_backward_cmd = lua.create_function(|_, dist: f32| {
+                Ok(PlayerCommand::Move(MovementDirection::Backward, dist))
+            })?;
+            me.set("move_backward", move_backward_cmd)?;
+
+            let move_left_cmd = lua.create_function(|_, dist: f32| {
+                Ok(PlayerCommand::Move(MovementDirection::Left, dist))
+            })?;
+            me.set("move_left", move_left_cmd)?;
+
+            let move_right_cmd = lua.create_function(|_, dist: f32| {
+                Ok(PlayerCommand::Move(MovementDirection::Right, dist))
+            })?;
+            me.set("move_right", move_right_cmd)?;
 
             let attack_cmd =
                 lua.create_function(|_, angle: f32| Ok(PlayerCommand::Attack(angle)))?;
@@ -250,7 +326,6 @@ fn draw_line_in_direction(
 
 mod render {
     use super::*;
-    use raylib::prelude::*;
 
     fn player_vision(d: &mut raylib::drawing::RaylibDrawHandle, x: i32, y: i32, heading: f32) {
         draw_line_in_direction(d, x, y, heading, 2.0 * PLAYER_RADIUS as f32, Color::RED);
@@ -301,7 +376,7 @@ mod render {
             player_vision(d, pos.x, pos.y, p.head_heading);
             player_arms(d, pos.x, pos.y, p.arms_heading);
             heading(d, pos.x, pos.y, p.heading);
-            d.draw_circle(pos.x, pos.y, 25.0, Color::GREENYELLOW);
+            d.draw_circle(pos.x, pos.y, PLAYER_RADIUS as f32, Color::GREENYELLOW);
         }
     }
 }
@@ -328,39 +403,78 @@ enum GameEvent {
     PlayerMoved(u8, Point),
 }
 
+fn clamp(x: f32, lower: f32, upper: f32) -> f32 {
+    f32::min(f32::max(lower, x), upper)
+}
+
+fn clamp_turn_angle(angle: f32) -> f32 {
+    clamp(angle, -HALF_PI, HALF_PI)
+}
+
+fn normalize_abs_angle(angle: f32) -> f32 {
+    if angle >= TWO_PI {
+        normalize_abs_angle(angle - TWO_PI)
+    } else if angle < 0.0 {
+        normalize_abs_angle(angle + TWO_PI)
+    } else {
+        angle
+    }
+}
+
 fn advance_players(state: &mut GameState, event_manager: &mut EventManager) {
     // FIXME: refactor: probably no need to mutate players for the next
     // positions, or even keep them in there as state at all!
     for player in state.players.iter_mut() {
-        let p = player.pos.borrow();
+        let dangle = clamp(player.intent.turn_angle, -MAX_TURN_RATE, MAX_TURN_RATE);
+        player.intent.turn_angle = if player.intent.turn_angle.abs() < MAX_TURN_RATE {
+            0.0
+        } else {
+            player.intent.turn_angle - dangle
+        };
+        let heading = normalize_abs_angle(player.heading + dangle);
+        player.heading = heading;
 
+        let velocity = f32::min(player.intent.distance, MAX_VELOCITY);
+        let dir_heading = match player.intent.direction {
+            MovementDirection::Forward => 0.0,
+            MovementDirection::Backward => PI as f32,
+            MovementDirection::Left => -HALF_PI,
+            MovementDirection::Right => HALF_PI,
+        };
+        let movement_heading = heading + dir_heading;
+        let remaining_distance = f32::max(player.intent.distance - velocity, 0.0);
+        let p = player.pos.borrow();
+        let dx = movement_heading.sin() * velocity;
+        let dy = -movement_heading.cos() * velocity;
         let next_pos = Point {
-            x: p.x + player.intent.distance.round() as i32,
-            y: p.y,
+            x: p.x + dx.round() as i32,
+            y: p.y + dy.round() as i32,
         };
         if valid_position(&next_pos) {
-            player.next_pos = next_pos;
+            player.next_move.pos = next_pos;
+            player.next_move.distance = remaining_distance;
         } else {
-            player.next_pos = p.clone();
+            player.next_move.pos = p.clone();
+            player.next_move.distance = player.intent.distance;
         }
 
-        player.heading += player.intent.turn_angle;
         player.head_heading += player.intent.turn_head_angle;
         player.arms_heading += player.intent.turn_arms_angle;
     }
 
-    let next_positions: Vec<(u8, Point)> = state
+    let next_positions: Vec<(u8, NextMove)> = state
         .players
         .iter()
-        .map(|player| (player.id, player.next_pos.clone()))
+        .map(|player| (player.id, player.next_move.clone()))
         .collect();
     state.players.iter_mut().for_each(|player| {
-        if !next_positions.iter().any(|(id, next_pos)| {
-            *id != player.id && players_collide(&player.pos.borrow(), next_pos)
+        if !next_positions.iter().any(|(id, next_move)| {
+            *id != player.id && players_collide(&player.pos.borrow(), &next_move.pos)
         }) {
             let mut pos = player.pos.borrow_mut();
-            pos.x = player.next_pos.x;
-            pos.y = player.next_pos.y;
+            pos.x = player.next_move.pos.x;
+            pos.y = player.next_move.pos.y;
+            player.intent.distance = player.next_move.distance;
             event_manager.record_event(GameEvent::PlayerMoved(player.id, pos.clone()));
         }
     });
@@ -426,7 +540,10 @@ fn step(state: &mut GameState, event_manager: &mut EventManager) -> LuaResult<()
                 PlayerCommand::Turn(angle) => player.intent.turn_angle = *angle,
                 PlayerCommand::TurnHead(angle) => player.intent.turn_head_angle = *angle,
                 PlayerCommand::TurnArms(angle) => player.intent.turn_arms_angle = *angle,
-                PlayerCommand::Move(dist) => player.intent.distance = *dist,
+                PlayerCommand::Move(dir, dist) => {
+                    player.intent.direction = dir.clone();
+                    player.intent.distance = *dist;
+                }
             }
         }
     }
@@ -464,8 +581,8 @@ fn tick_events(state: &GameState) -> Vec<GameEvent> {
 
 fn main() -> LuaResult<()> {
     // FIXME: IDs
-    let player1 = Player::new("players/kai.lua", 1, 30, 50)?;
-    let player2 = Player::new("players/lloyd.lua", 2, 400, 50)?;
+    let player1 = Player::new("players/kai.lua", 1, 70, 100)?;
+    let player2 = Player::new("players/lloyd.lua", 2, 400, 100)?;
 
     let mut state = GameState::new();
     state.players = vec![player1, player2];
@@ -498,11 +615,11 @@ mod tests {
     #[test]
     fn call_on_tick() {
         let player = LuaPlayer::new(
-            "return { on_tick = function(n) return { { tag = \"move\", distance = 13.12 } } end }",
+            "return { on_tick = function(n) return { { tag = \"move\", distance = 13.12, direction = \"left\" } } end }",
         )
         .expect("lua player could not be created");
         let res: Vec<PlayerCommand> = player.on_tick(17).expect("on_tick failed");
         let cmd = res.first().expect("some command");
-        assert_eq!(*cmd, PlayerCommand::Move(13.12));
+        assert_eq!(*cmd, PlayerCommand::Move(MovementDirection::Left, 13.12));
     }
 }
