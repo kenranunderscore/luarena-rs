@@ -205,13 +205,13 @@ struct NextMove {
 
 pub struct Player {
     pub id: u8,
-    pub lua_player: LuaPlayer,
+    lua_player: LuaPlayer,
     pub pos: Rc<RefCell<Point>>,
     pub heading: f32,
     pub head_heading: f32,
     pub arms_heading: f32,
-    pub intent: PlayerIntent,
-    pub next_move: NextMove,
+    intent: PlayerIntent,
+    next_move: NextMove,
 }
 
 impl Player {
@@ -328,7 +328,7 @@ fn valid_position(p: &Point) -> bool {
         && p.y <= HEIGHT - PLAYER_RADIUS
 }
 
-enum GameEvent {
+pub enum GameEvent {
     Tick(i32),
     RoundStarted(i32),
     PlayerMoved(u8, Point),
@@ -470,7 +470,7 @@ fn dispatch_player_events(
     for e in player_events.iter() {
         match e {
             PlayerEvent::Tick(n) => commands.append(&mut player.lua_player.on_tick(*n)?),
-            PlayerEvent::RoundStarted(_) => todo!("round started handler"),
+            PlayerEvent::RoundStarted(n) => todo!("round started handler for round {n}"),
         }
     }
     Ok(commands)
