@@ -18,6 +18,7 @@ fn main() -> LuaResult<()> {
     let (mut rl, thread) = raylib::init()
         .size(WIDTH, HEIGHT)
         .title("hello world")
+        .vsync()
         .build();
     let mut event_manager = EventManager::new();
 
