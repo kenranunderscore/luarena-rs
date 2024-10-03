@@ -19,6 +19,7 @@ fn main() -> LuaResult<()> {
         .size(WIDTH, HEIGHT)
         .title("hello world")
         .vsync()
+        .msaa_4x()
         .build();
     let mut event_manager = EventManager::new();
 
