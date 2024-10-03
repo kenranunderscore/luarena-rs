@@ -132,10 +132,10 @@ struct LuaPlayer {
     key: LuaRegistryKey,
 }
 
-struct Color {
-    red: u8,
-    green: u8,
-    blue: u8,
+pub struct Color {
+    pub red: u8,
+    pub green: u8,
+    pub blue: u8,
 }
 
 impl<'a> FromLua<'a> for Color {
@@ -156,10 +156,10 @@ impl<'a> FromLua<'a> for Color {
     }
 }
 
-struct PlayerMeta {
-    name: String,
-    color: Color,
-    version: String,
+pub struct PlayerMeta {
+    pub name: String,
+    pub color: Color,
+    pub version: String,
     entrypoint: String,
 }
 
@@ -258,7 +258,7 @@ struct NextMove {
 pub struct Player {
     pub id: u8,
     lua_player: LuaPlayer,
-    meta: PlayerMeta,
+    pub meta: PlayerMeta,
     pub pos: Rc<RefCell<Point>>,
     pub heading: f32,
     pub head_heading: f32,
@@ -365,7 +365,6 @@ impl GameState {
 }
 
 fn load_lua_player(player_dir: &str, meta: &PlayerMeta) -> LuaResult<LuaPlayer> {
-    let meta = LuaPlayer::read_meta(player_dir)?;
     // FIXME: use PathBuf or similar
     let file = format!("{player_dir}/{0}", meta.entrypoint);
     let code = std::fs::read_to_string(file)?;

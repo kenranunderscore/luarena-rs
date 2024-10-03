@@ -1,7 +1,7 @@
 use raylib::prelude::*;
 
-use crate::settings::*;
 use crate::game::Player;
+use crate::settings::*;
 
 fn draw_line_in_direction(
     d: &mut raylib::drawing::RaylibDrawHandle,
@@ -24,22 +24,15 @@ fn player_arms(d: &mut raylib::drawing::RaylibDrawHandle, x: i32, y: i32, headin
     draw_line_in_direction(d, x, y, heading, 1.5 * PLAYER_RADIUS as f32, Color::YELLOW);
 }
 
-fn heading(d: &mut raylib::drawing::RaylibDrawHandle, x: i32, y: i32, heading: f32) {
-    draw_line_in_direction(
-        d,
-        x,
-        y,
-        heading,
-        1.6 * PLAYER_RADIUS as f32,
-        Color::GREENYELLOW,
-    );
+fn heading(d: &mut raylib::drawing::RaylibDrawHandle, x: i32, y: i32, heading: f32, color: Color) {
+    draw_line_in_direction(d, x, y, heading, 1.6 * PLAYER_RADIUS as f32, color);
     draw_line_in_direction(
         d,
         x,
         y,
         heading + PI as f32,
         1.2 * PLAYER_RADIUS as f32,
-        Color::GREENYELLOW,
+        color,
     );
     draw_line_in_direction(
         d,
@@ -47,7 +40,7 @@ fn heading(d: &mut raylib::drawing::RaylibDrawHandle, x: i32, y: i32, heading: f
         y,
         heading + PI as f32 / 2.0,
         1.2 * PLAYER_RADIUS as f32,
-        Color::GREENYELLOW,
+        color,
     );
     draw_line_in_direction(
         d,
@@ -55,16 +48,26 @@ fn heading(d: &mut raylib::drawing::RaylibDrawHandle, x: i32, y: i32, heading: f
         y,
         heading - PI as f32 / 2.0,
         1.2 * PLAYER_RADIUS as f32,
-        Color::GREENYELLOW,
+        color,
     );
 }
 
+fn to_raylib_color(color: &crate::game::Color) -> Color {
+    Color {
+        r: color.red,
+        g: color.green,
+        b: color.blue,
+        a: 255,
+    }
+}
+
 pub fn players(d: &mut raylib::drawing::RaylibDrawHandle, players: &Vec<Player>) {
-    for p in players {
-        let pos = p.pos.borrow();
-        player_vision(d, pos.x, pos.y, p.effective_head_heading());
-        player_arms(d, pos.x, pos.y, p.effective_arms_heading());
-        heading(d, pos.x, pos.y, p.heading);
-        d.draw_circle(pos.x, pos.y, PLAYER_RADIUS as f32, Color::GREENYELLOW);
+    for player in players {
+        let pos = player.pos.borrow();
+        let player_color = to_raylib_color(&player.meta.color);
+        player_vision(d, pos.x, pos.y, player.effective_head_heading());
+        player_arms(d, pos.x, pos.y, player.effective_arms_heading());
+        heading(d, pos.x, pos.y, player.heading, player_color);
+        d.draw_circle(pos.x, pos.y, PLAYER_RADIUS as f32, player_color);
     }
 }

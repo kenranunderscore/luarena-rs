@@ -25,7 +25,7 @@ fn main() -> LuaResult<()> {
     while !rl.window_should_close() {
         state.tick += 1;
         let mut d = rl.begin_drawing(&thread);
-        d.clear_background(Color::BLACK);
+        d.clear_background(raylib::prelude::Color::BLACK);
         step(&mut state, &mut event_manager)?;
         render::players(&mut d, &state.players);
     }
