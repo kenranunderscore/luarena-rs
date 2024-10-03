@@ -10,8 +10,8 @@ use game::*;
 
 fn main() -> LuaResult<()> {
     // FIXME: IDs
-    let player1 = Player::new("players/kai.lua", 1, 70, 100)?;
-    let player2 = Player::new("players/lloyd.lua", 2, 400, 100)?;
+    let player1 = Player::new("players/kai", 1, 70, 100)?;
+    let player2 = Player::new("players/lloyd", 2, 400, 100)?;
 
     let mut state = GameState::new();
     state.players = vec![player1, player2];

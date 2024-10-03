@@ -132,7 +132,59 @@ struct LuaPlayer {
     key: LuaRegistryKey,
 }
 
+struct Color {
+    red: u8,
+    green: u8,
+    blue: u8,
+}
+
+impl<'a> FromLua<'a> for Color {
+    fn from_lua(value: LuaValue<'a>, _lua: &'a Lua) -> LuaResult<Self> {
+        // TODO: read from hex string as well
+        match value {
+            LuaValue::Table(t) => Ok(Color {
+                red: t.get("red")?,
+                green: t.get("green")?,
+                blue: t.get("blue")?,
+            }),
+            _ => Err(mlua::Error::FromLuaConversionError {
+                from: value.type_name(),
+                to: "Color",
+                message: Some("expected valid direction".to_string()),
+            }),
+        }
+    }
+}
+
+struct PlayerMeta {
+    name: String,
+    color: Color,
+    version: String,
+    entrypoint: String,
+}
+
 impl LuaPlayer {
+    pub fn read_meta(player_dir: &str) -> LuaResult<PlayerMeta> {
+        let lua = Lua::new();
+        // FIXME: use PathBuf or similar
+        let meta_file = format!("{player_dir}/meta.lua");
+        let code = std::fs::read_to_string(meta_file)?;
+        lua.load(&code).exec()?;
+        let name = lua.globals().get("name")?;
+        let color = lua.globals().get("color")?;
+        let version = lua.globals().get("version")?;
+        let entrypoint = match lua.globals().get("entrypoint") {
+            Ok(file_name) => file_name,
+            Err(_) => String::from("main.lua"),
+        };
+        Ok(PlayerMeta {
+            name,
+            color,
+            version,
+            entrypoint,
+        })
+    }
+
     fn new(code: &str) -> LuaResult<Self> {
         let lua = Lua::new();
         lua.load_from_std_lib(LuaStdLib::ALL_SAFE)?;
@@ -206,6 +258,7 @@ struct NextMove {
 pub struct Player {
     pub id: u8,
     lua_player: LuaPlayer,
+    meta: PlayerMeta,
     pub pos: Rc<RefCell<Point>>,
     pub heading: f32,
     pub head_heading: f32,
@@ -215,10 +268,12 @@ pub struct Player {
 }
 
 impl Player {
-    pub fn new(file_path: &str, id: u8, x: i32, y: i32) -> LuaResult<Player> {
+    pub fn new(player_dir: &str, id: u8, x: i32, y: i32) -> LuaResult<Player> {
+        let meta = LuaPlayer::read_meta(player_dir)?;
         let res = Self {
             id,
-            lua_player: load_lua_player(file_path)?,
+            lua_player: load_lua_player(player_dir, &meta)?,
+            meta,
             pos: Rc::new(RefCell::new(Point { x, y })),
             heading: 0.0,
             head_heading: 0.0,
@@ -242,57 +297,54 @@ impl Player {
     }
 
     fn register_lua_library(&self) -> LuaResult<()> {
-        {
-            let lua = &self.lua_player.lua;
-            let me = lua.create_table()?;
+        let lua = &self.lua_player.lua;
+        let me = lua.create_table()?;
 
-            let pos_ref = Rc::clone(&self.pos);
-            let x = lua.create_function(move |_, _: ()| Ok(pos_ref.borrow().x))?;
-            me.set("x", x)?;
+        let pos_ref = Rc::clone(&self.pos);
+        let x = lua.create_function(move |_, _: ()| Ok(pos_ref.borrow().x))?;
+        me.set("x", x)?;
 
-            // need to clone the ref again, as we move to make the closure work
-            let pos_ref = Rc::clone(&self.pos);
-            let y = lua.create_function(move |_, _: ()| Ok(pos_ref.borrow().y))?;
-            me.set("y", y)?;
+        // need to clone the ref again, as we move to make the closure work
+        let pos_ref = Rc::clone(&self.pos);
+        let y = lua.create_function(move |_, _: ()| Ok(pos_ref.borrow().y))?;
+        me.set("y", y)?;
 
-            let move_cmd = lua.create_function(|_, dist: f32| {
-                Ok(PlayerCommand::Move(MovementDirection::Forward, dist))
-            })?;
-            me.set("move", move_cmd)?;
+        let move_cmd = lua.create_function(|_, dist: f32| {
+            Ok(PlayerCommand::Move(MovementDirection::Forward, dist))
+        })?;
+        me.set("move", move_cmd)?;
 
-            let move_backward_cmd = lua.create_function(|_, dist: f32| {
-                Ok(PlayerCommand::Move(MovementDirection::Backward, dist))
-            })?;
-            me.set("move_backward", move_backward_cmd)?;
+        let move_backward_cmd = lua.create_function(|_, dist: f32| {
+            Ok(PlayerCommand::Move(MovementDirection::Backward, dist))
+        })?;
+        me.set("move_backward", move_backward_cmd)?;
 
-            let move_left_cmd = lua.create_function(|_, dist: f32| {
-                Ok(PlayerCommand::Move(MovementDirection::Left, dist))
-            })?;
-            me.set("move_left", move_left_cmd)?;
+        let move_left_cmd = lua.create_function(|_, dist: f32| {
+            Ok(PlayerCommand::Move(MovementDirection::Left, dist))
+        })?;
+        me.set("move_left", move_left_cmd)?;
 
-            let move_right_cmd = lua.create_function(|_, dist: f32| {
-                Ok(PlayerCommand::Move(MovementDirection::Right, dist))
-            })?;
-            me.set("move_right", move_right_cmd)?;
+        let move_right_cmd = lua.create_function(|_, dist: f32| {
+            Ok(PlayerCommand::Move(MovementDirection::Right, dist))
+        })?;
+        me.set("move_right", move_right_cmd)?;
 
-            let attack_cmd =
-                lua.create_function(|_, angle: f32| Ok(PlayerCommand::Attack(angle)))?;
-            me.set("attack", attack_cmd)?;
+        let attack_cmd = lua.create_function(|_, angle: f32| Ok(PlayerCommand::Attack(angle)))?;
+        me.set("attack", attack_cmd)?;
 
-            let turn_cmd = lua.create_function(|_, angle: f32| Ok(PlayerCommand::Turn(angle)))?;
-            me.set("turn", &turn_cmd)?;
+        let turn_cmd = lua.create_function(|_, angle: f32| Ok(PlayerCommand::Turn(angle)))?;
+        me.set("turn", &turn_cmd)?;
 
-            let turn_head_cmd =
-                lua.create_function(|_, angle: f32| Ok(PlayerCommand::TurnHead(angle)))?;
-            me.set("turn_head", turn_head_cmd)?;
+        let turn_head_cmd =
+            lua.create_function(|_, angle: f32| Ok(PlayerCommand::TurnHead(angle)))?;
+        me.set("turn_head", turn_head_cmd)?;
 
-            let turn_arms_cmd =
-                lua.create_function(|_, angle: f32| Ok(PlayerCommand::TurnArms(angle)))?;
-            me.set("turn_arms", turn_arms_cmd)?;
+        let turn_arms_cmd =
+            lua.create_function(|_, angle: f32| Ok(PlayerCommand::TurnArms(angle)))?;
+        me.set("turn_arms", turn_arms_cmd)?;
 
-            lua.globals().set("me", me)?;
-            Ok(())
-        }
+        lua.globals().set("me", me)?;
+        Ok(())
     }
 }
 
@@ -312,8 +364,11 @@ impl GameState {
     }
 }
 
-fn load_lua_player(file_path: &str) -> LuaResult<LuaPlayer> {
-    let code = std::fs::read_to_string(file_path)?;
+fn load_lua_player(player_dir: &str, meta: &PlayerMeta) -> LuaResult<LuaPlayer> {
+    let meta = LuaPlayer::read_meta(player_dir)?;
+    // FIXME: use PathBuf or similar
+    let file = format!("{player_dir}/{0}", meta.entrypoint);
+    let code = std::fs::read_to_string(file)?;
     LuaPlayer::new(&code)
 }
 

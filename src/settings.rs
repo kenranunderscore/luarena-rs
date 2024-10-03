@@ -1,7 +1,7 @@
 pub const MAX_TURN_RATE: f32 = 0.05;
 pub const MAX_HEAD_TURN_RATE: f32 = 0.1;
 pub const MAX_ARMS_TURN_RATE: f32 = 0.08;
-pub const PLAYER_RADIUS: i32 = 50;
+pub const PLAYER_RADIUS: i32 = 25;
 pub const WIDTH: i32 = 800;
 pub const HEIGHT: i32 = 600;
 pub const HALF_PI: f32 = crate::PI as f32 / 2.0;
