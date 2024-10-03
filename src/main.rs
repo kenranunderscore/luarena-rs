@@ -2,11 +2,12 @@ use mlua::prelude::*;
 use raylib::prelude::*;
 
 mod game;
+mod math_utils;
 mod render;
 mod settings;
 
-use settings::*;
 use game::*;
+use settings::*;
 
 fn main() -> LuaResult<()> {
     // FIXME: IDs

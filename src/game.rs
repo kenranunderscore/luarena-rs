@@ -2,6 +2,8 @@ use std::{cell::RefCell, rc::Rc};
 
 use mlua::prelude::*;
 
+use crate::math_utils;
+use crate::math_utils::HALF_PI;
 use crate::settings::*;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -289,11 +291,11 @@ impl Player {
     }
 
     pub fn effective_head_heading(&self) -> f32 {
-        normalize_abs_angle(self.heading + self.head_heading)
+        math_utils::normalize_abs_angle(self.heading + self.head_heading)
     }
 
     pub fn effective_arms_heading(&self) -> f32 {
-        normalize_abs_angle(self.heading + self.arms_heading)
+        math_utils::normalize_abs_angle(self.heading + self.arms_heading)
     }
 
     fn register_lua_library(&self) -> LuaResult<()> {
@@ -388,22 +390,8 @@ pub enum GameEvent {
     PlayerMoved(u8, Point),
 }
 
-fn clamp(x: f32, lower: f32, upper: f32) -> f32 {
-    f32::min(f32::max(lower, x), upper)
-}
-
 fn clamp_turn_angle(angle: f32) -> f32 {
-    clamp(angle, -HALF_PI, HALF_PI)
-}
-
-fn normalize_abs_angle(angle: f32) -> f32 {
-    if angle >= TWO_PI {
-        normalize_abs_angle(angle - TWO_PI)
-    } else if angle < 0.0 {
-        normalize_abs_angle(angle + TWO_PI)
-    } else {
-        angle
-    }
+    math_utils::clamp(angle, -ANGLE_OF_ACTION, ANGLE_OF_ACTION)
 }
 
 fn advance_players(state: &mut GameState, event_manager: &mut EventManager) {
@@ -411,13 +399,13 @@ fn advance_players(state: &mut GameState, event_manager: &mut EventManager) {
     // positions, or even keep them in there as state at all!
     for player in state.players.iter_mut() {
         {
-            let delta = clamp(player.intent.turn_angle, -MAX_TURN_RATE, MAX_TURN_RATE);
+            let delta = math_utils::clamp(player.intent.turn_angle, -MAX_TURN_RATE, MAX_TURN_RATE);
             player.intent.turn_angle = if player.intent.turn_angle.abs() < MAX_TURN_RATE {
                 0.0
             } else {
                 player.intent.turn_angle - delta
             };
-            let heading = normalize_abs_angle(player.heading + delta);
+            let heading = math_utils::normalize_abs_angle(player.heading + delta);
             player.heading = heading;
 
             let velocity = f32::min(player.intent.distance, MAX_VELOCITY);
@@ -446,7 +434,7 @@ fn advance_players(state: &mut GameState, event_manager: &mut EventManager) {
         }
 
         {
-            let delta = clamp(
+            let delta = math_utils::clamp(
                 player.intent.turn_head_angle,
                 -MAX_HEAD_TURN_RATE,
                 MAX_HEAD_TURN_RATE,
@@ -458,7 +446,7 @@ fn advance_players(state: &mut GameState, event_manager: &mut EventManager) {
         }
 
         {
-            let delta = clamp(
+            let delta = math_utils::clamp(
                 player.intent.turn_arms_angle,
                 -MAX_ARMS_TURN_RATE,
                 MAX_ARMS_TURN_RATE,
