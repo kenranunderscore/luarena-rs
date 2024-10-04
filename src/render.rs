@@ -1,6 +1,6 @@
 use raylib::prelude::*;
 
-use crate::game::{Player, Point};
+use crate::game::Player;
 use crate::{math_utils, settings::*};
 
 const VISION_COLOR: Color = Color {
@@ -23,20 +23,14 @@ fn draw_line_in_direction(
     d.draw_line(x, y, x + dx.round() as i32, y - dy.round() as i32, color);
 }
 
-fn line_endpoint(x: f32, y: f32, len: f32, angle: f32) -> (f32, f32) {
-    let dx = angle.sin() * len;
-    let dy = -angle.cos() * len;
-    (x + dx, y + dy)
-}
-
 fn player_vision(d: &mut raylib::drawing::RaylibDrawHandle, x: i32, y: i32, heading: f32) {
     let vision_delta = ANGLE_OF_VISION / 2.0;
     let side_len = (WIDTH + HEIGHT) as f32; // don't know whether this is smart or dumb...
     let origin = Vector2::new(x as f32, y as f32);
     let left_angle = math_utils::normalize_abs_angle(heading - vision_delta);
-    let (lx, ly) = line_endpoint(origin.x, origin.y, side_len, left_angle);
+    let (lx, ly) = math_utils::line_endpoint(origin.x, origin.y, side_len, left_angle);
     let right_angle = math_utils::normalize_abs_angle(heading + vision_delta);
-    let (rx, ry) = line_endpoint(origin.x, origin.y, side_len, right_angle);
+    let (rx, ry) = math_utils::line_endpoint(origin.x, origin.y, side_len, right_angle);
     d.draw_triangle(
         Vector2::new(lx, ly),
         origin,

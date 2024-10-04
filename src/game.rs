@@ -2,8 +2,8 @@ use std::{cell::RefCell, rc::Rc};
 
 use mlua::prelude::*;
 
-use crate::math_utils;
 use crate::math_utils::HALF_PI;
+use crate::math_utils::{self, Point};
 use crate::settings::*;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -129,11 +129,6 @@ impl<'a> IntoLua<'a> for PlayerCommand {
     }
 }
 
-struct LuaPlayer {
-    lua: Lua,
-    key: LuaRegistryKey,
-}
-
 pub struct Color {
     pub red: u8,
     pub green: u8,
@@ -163,6 +158,11 @@ pub struct PlayerMeta {
     pub color: Color,
     pub version: String,
     entrypoint: String,
+}
+
+struct LuaPlayer {
+    lua: Lua,
+    key: LuaRegistryKey,
 }
 
 impl LuaPlayer {
@@ -206,26 +206,29 @@ impl LuaPlayer {
         Ok(t)
     }
 
+    pub fn on_event(&self, event: &PlayerEvent) -> LuaResult<Vec<PlayerCommand>> {
+        match event {
+            PlayerEvent::Tick(n) => self.on_tick(*n),
+            PlayerEvent::RoundStarted(_) => todo!("on_round_started"),
+            PlayerEvent::EnemySeen(name, pos) => self.on_enemy_seen(name.to_string(), pos),
+        }
+    }
+
     fn on_tick(&self, tick: i32) -> LuaResult<Vec<PlayerCommand>> {
-        let res: Vec<PlayerCommand> = self.table()?.call_function("on_tick", tick)?;
+        let t = self.table()?;
+        if t.contains_key("on_tick")? {
+            let res: Vec<PlayerCommand> = self.table()?.call_function("on_tick", tick)?;
+            Ok(res)
+        } else {
+            Ok(vec![])
+        }
+    }
+
+    fn on_enemy_seen(&self, enemy_name: String, pos: &Point) -> LuaResult<Vec<PlayerCommand>> {
+        let res: Vec<PlayerCommand> = self
+            .table()?
+            .call_function("on_enemy_seen", (enemy_name, pos.x, pos.y))?;
         Ok(res)
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct Point {
-    pub x: i32,
-    pub y: i32,
-}
-
-impl Point {
-    pub fn dist_sqr(&self, p: &Point) -> i32 {
-        (self.x - p.x).pow(2) + (self.y - p.y).pow(2)
-    }
-
-    pub fn dist(&self, p: &Point) -> f32 {
-        let d = self.dist_sqr(p) as f32;
-        d.sqrt()
     }
 }
 
@@ -387,14 +390,14 @@ fn valid_position(p: &Point) -> bool {
 pub enum GameEvent {
     Tick(i32),
     RoundStarted(i32),
-    PlayerMoved(u8, Point),
+    EnemySeen(u8, String, Point),
 }
 
 fn clamp_turn_angle(angle: f32) -> f32 {
     math_utils::clamp(angle, -ANGLE_OF_ACTION, ANGLE_OF_ACTION)
 }
 
-fn advance_players(state: &mut GameState, event_manager: &mut EventManager) {
+fn advance_players(state: &mut GameState, _event_manager: &mut EventManager) {
     // FIXME: refactor: probably no need to mutate players for the next
     // positions, or even keep them in there as state at all!
     for player in state.players.iter_mut() {
@@ -471,7 +474,6 @@ fn advance_players(state: &mut GameState, event_manager: &mut EventManager) {
             pos.x = player.next_move.pos.x;
             pos.y = player.next_move.pos.y;
             player.intent.distance = player.next_move.distance;
-            event_manager.record_event(GameEvent::PlayerMoved(player.id, pos.clone()));
         }
     });
 }
@@ -484,12 +486,10 @@ fn players_collide(p: &Point, q: &Point) -> bool {
 enum PlayerEvent {
     Tick(i32),
     RoundStarted(i32),
+    EnemySeen(String, Point),
 }
 
-fn game_events_to_player_events(
-    _player: &Player,
-    game_events: &Vec<GameEvent>,
-) -> Vec<PlayerEvent> {
+fn game_events_to_player_events(player: &Player, game_events: &Vec<GameEvent>) -> Vec<PlayerEvent> {
     // FIXME: when to generate enemy_seen events?
     game_events.iter().fold(Vec::new(), |mut acc, e| match e {
         GameEvent::Tick(n) => {
@@ -500,8 +500,35 @@ fn game_events_to_player_events(
             acc.push(PlayerEvent::RoundStarted(*n));
             acc
         }
-        GameEvent::PlayerMoved(_other, _pos) => acc,
+        GameEvent::EnemySeen(id, target, pos) => {
+            if *id == player.id {
+                acc.push(PlayerEvent::EnemySeen(target.clone(), pos.clone()));
+            }
+            acc
+        }
     })
+}
+
+fn can_spot(
+    origin: &Point,
+    view_angle: f32,
+    target: &Point,
+    player_radius: f32,
+    angle_of_vision: f32,
+) -> bool {
+    // FIXME: test this most likely overly complicated stuff
+    let delta = angle_of_vision / 2.0;
+    let left = view_angle - delta;
+    let right = view_angle + delta;
+    let dist = origin.dist(target);
+    // TODO: really not atan2?
+    let alpha = f32::atan(player_radius / dist);
+    let angle = math_utils::normalize_abs_angle(math_utils::angle_between(origin, target));
+    let alpha_left = angle - alpha;
+    let alpha_right = angle + alpha;
+    math_utils::between(alpha_left, left, right)
+        || math_utils::between(alpha_right, left, right)
+        || (alpha_left <= left && alpha_right >= right)
 }
 
 fn dispatch_player_events(
@@ -510,16 +537,48 @@ fn dispatch_player_events(
 ) -> LuaResult<Vec<PlayerCommand>> {
     let mut commands = Vec::new();
     for e in player_events.iter() {
-        match e {
-            PlayerEvent::Tick(n) => commands.append(&mut player.lua_player.on_tick(*n)?),
-            PlayerEvent::RoundStarted(n) => todo!("round started handler for round {n}"),
-        }
+        commands.append(&mut player.lua_player.on_event(&e)?);
     }
     Ok(commands)
 }
 
+fn determine_vision_events(state: &GameState, event_manager: &mut EventManager) {
+    // FIXME: learn how to do this in a better way!
+    let player_positions: Vec<(u8, String, Point)> = state
+        .players
+        .iter()
+        .map(|player| {
+            (
+                player.id,
+                player.meta.name.clone(),
+                player.pos.borrow().clone(),
+            )
+        })
+        .collect();
+    for player in state.players.iter() {
+        for (id, name, pos) in player_positions.iter() {
+            if *id != player.id {
+                if can_spot(
+                    &player.pos.borrow(),
+                    player.effective_head_heading(),
+                    &pos,
+                    PLAYER_RADIUS as f32,
+                    ANGLE_OF_VISION,
+                ) {
+                    event_manager.record_event(GameEvent::EnemySeen(
+                        player.id,
+                        name.to_string(),
+                        pos.clone(),
+                    ));
+                }
+            }
+        }
+    }
+}
+
 pub fn step(state: &mut GameState, event_manager: &mut EventManager) -> LuaResult<()> {
     event_manager.next_tick(state);
+    determine_vision_events(state, event_manager);
     advance_players(state, event_manager);
     let game_events = &event_manager.current_events;
     for player in state.players.iter_mut() {
@@ -579,19 +638,84 @@ fn tick_events(state: &GameState) -> Vec<GameEvent> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn lua_player_can_be_loaded_from_code() {
-        LuaPlayer::new("return {}").expect("lua player could not be created");
+    mod lua_player {
+        use super::*;
+
+        #[test]
+        fn lua_player_can_be_loaded_from_code() {
+            LuaPlayer::new("return {}").expect("lua player could not be created");
+        }
+
+        #[test]
+        fn call_on_tick() {
+            let player = LuaPlayer::new("return { on_tick = function(n) return { { tag = \"move\", distance = 13.12, direction = \"left\" } } end }")
+                .expect("lua player could not be created");
+            let res: Vec<PlayerCommand> = player.on_tick(17).expect("on_tick failed");
+            let cmd = res.first().expect("some command");
+            assert_eq!(*cmd, PlayerCommand::Move(MovementDirection::Left, 13.12));
+        }
+
+        #[test]
+        fn call_on_tick_if_missing() {
+            let player = LuaPlayer::new("return {}").unwrap();
+            let res: Vec<PlayerCommand> = player.on_tick(17).expect("on_tick failed");
+            assert_eq!(res.len(), 0);
+        }
     }
 
-    #[test]
-    fn call_on_tick() {
-        let player = LuaPlayer::new(
-            "return { on_tick = function(n) return { { tag = \"move\", distance = 13.12, direction = \"left\" } } end }",
-        )
-        .expect("lua player could not be created");
-        let res: Vec<PlayerCommand> = player.on_tick(17).expect("on_tick failed");
-        let cmd = res.first().expect("some command");
-        assert_eq!(*cmd, PlayerCommand::Move(MovementDirection::Left, 13.12));
+    mod can_spot {
+        use std::f32::consts::PI;
+
+        use super::*;
+
+        #[test]
+        fn first_quadrant_too_far_left() {
+            let visible = can_spot(
+                &Point { x: 400, y: 400 },
+                -PI / 4.0,
+                &Point { x: 500, y: 300 },
+                25.0,
+                1.4,
+            );
+            assert!(!visible)
+        }
+
+        #[test]
+        fn first_quadrant_too_far_right() {
+            let visible = can_spot(
+                &Point { x: 400, y: 400 },
+                3.0 * PI / 4.0,
+                &Point { x: 500, y: 300 },
+                25.0,
+                1.4,
+            );
+            assert!(!visible);
+        }
+
+        #[test]
+        fn first_quadrant_head_on() {
+            let visible = can_spot(
+                &Point { x: 400, y: 400 },
+                PI / 4.0,
+                &Point { x: 500, y: 300 },
+                25.0,
+                1.4,
+            );
+            assert!(visible);
+        }
+
+        #[test]
+        fn first_quadrant_target_larger_than_vision_angle() {
+            let visible = can_spot(
+                &Point { x: 400, y: 400 },
+                0.7,
+                &Point { x: 500, y: 300 },
+                50.0,
+                0.1,
+            );
+            assert!(visible);
+        }
+
+        // FIXME: test other quadrants and relative positions
     }
 }

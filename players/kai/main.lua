@@ -11,8 +11,9 @@ function m.on_tick(tick)
 	end
 end
 
-function m.on_enemy_seen(x, y)
-	return {}
+function m.on_enemy_seen(name, x, y)
+	print("saw enemy: " .. name .. " at (" .. x .. ", " .. y .. ")")
+	return { me.turn_arms(0.01) }
 end
 
 return m
