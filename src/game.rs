@@ -262,6 +262,7 @@ struct NextMove {
 
 pub struct Player {
     pub id: u8,
+    pub hp: f32,
     lua_player: LuaPlayer,
     pub meta: PlayerMeta,
     pub pos: Rc<RefCell<Point>>,
@@ -277,6 +278,7 @@ impl Player {
         let meta = LuaPlayer::read_meta(player_dir)?;
         let res = Self {
             id,
+            hp: 100.0,
             lua_player: load_lua_player(player_dir, &meta)?,
             meta,
             pos: Rc::new(RefCell::new(Point { x, y })),
@@ -611,8 +613,8 @@ fn inside_arena(x: i32, y: i32) -> bool {
     x >= 0 && x <= WIDTH && y >= 0 && y <= HEIGHT
 }
 
-fn attack_hits_player<'a>(attack: &Attack, players: &'a Vec<Player>) -> Option<&'a Player> {
-    players.iter().find(|player| {
+fn attack_hits_player<'a>(attack: &Attack, players: &'a mut Vec<Player>) -> Option<&'a mut Player> {
+    players.iter_mut().find(|player| {
         player.id != attack.owner
             && attack.pos.dist(&player.pos.borrow()) <= ATTACK_RADIUS + PLAYER_RADIUS as f32
     })
@@ -633,9 +635,13 @@ fn transition_attacks(state: &mut GameState, _event_manager: &mut EventManager) 
         if inside_arena(new_x, new_y) {
             attack.pos.x = new_x;
             attack.pos.y = new_y;
-            if let Some(player) = attack_hits_player(&attack, &state.players) {
+            if let Some(player) = attack_hits_player(&attack, &mut state.players) {
                 // TODO: hit events
                 println!("player hit! it was {}", player.meta.name);
+                player.hp -= 15.0;
+                if player.hp <= 0.0 {
+                    println!("player {} died", player.meta.name);
+                }
                 to_remove.push(attack.id);
             }
             // TODO: attack advanced event
