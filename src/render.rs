@@ -94,7 +94,7 @@ pub fn players(d: &mut raylib::drawing::RaylibDrawHandle, players: &Vec<Player>)
 pub fn attacks(d: &mut raylib::drawing::RaylibDrawHandle, attacks: &Vec<Attack>) {
     for attack in attacks {
         let attack_color = Color::RED;
-        d.draw_circle(attack.pos.x, attack.pos.y, 5.0, attack_color);
+        d.draw_circle(attack.pos.x, attack.pos.y, ATTACK_RADIUS, attack_color);
     }
 }
 

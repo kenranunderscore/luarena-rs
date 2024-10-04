@@ -611,6 +611,13 @@ fn inside_arena(x: i32, y: i32) -> bool {
     x >= 0 && x <= WIDTH && y >= 0 && y <= HEIGHT
 }
 
+fn attack_hits_player<'a>(attack: &Attack, players: &'a Vec<Player>) -> Option<&'a Player> {
+    players.iter().find(|player| {
+        player.id != attack.owner
+            && attack.pos.dist(&player.pos.borrow()) <= ATTACK_RADIUS + PLAYER_RADIUS as f32
+    })
+}
+
 fn transition_attacks(state: &mut GameState, _event_manager: &mut EventManager) {
     // FIXME: this is the dumb way
     let mut to_remove: Vec<usize> = vec![];
@@ -624,17 +631,21 @@ fn transition_attacks(state: &mut GameState, _event_manager: &mut EventManager) 
         let new_x = x.round() as i32;
         let new_y = y.round() as i32;
         if inside_arena(new_x, new_y) {
-            // TODO: check for hits
-            // TODO: attack advanced event
             attack.pos.x = new_x;
             attack.pos.y = new_y;
+            if let Some(player) = attack_hits_player(&attack, &state.players) {
+                // TODO: hit events
+                println!("player hit! it was {}", player.meta.name);
+                to_remove.push(attack.id);
+            }
+            // TODO: attack advanced event
         } else {
             // TODO: attack missed event
             to_remove.push(attack.id);
         }
     }
 
-    // FIXME: this can't be right
+    // FIXME: this can't be good
     for id in to_remove.iter() {
         if let Some(i) = state.attacks.iter().position(|attack| attack.id == *id) {
             println!("removing....");
@@ -645,6 +656,8 @@ fn transition_attacks(state: &mut GameState, _event_manager: &mut EventManager) 
 
 pub fn step(state: &mut GameState, event_manager: &mut EventManager) -> LuaResult<()> {
     event_manager.next_tick(state);
+    // FIXME: EnemySeen is unnecessary/useless as a game event -> it only
+    // matters for players
     determine_vision_events(state, event_manager);
     advance_players(state, event_manager);
     create_attacks(state, event_manager);

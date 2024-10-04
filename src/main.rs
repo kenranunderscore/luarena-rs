@@ -12,7 +12,7 @@ use settings::*;
 fn main() -> LuaResult<()> {
     // FIXME: IDs
     let player1 = Player::new("players/kai", 1, 70, 450)?;
-    let player2 = Player::new("players/lloyd", 2, 700, 600)?;
+    let player2 = Player::new("players/lloyd", 2, 700, 440)?;
 
     let mut state = GameState::new();
     state.players = vec![player1, player2];
