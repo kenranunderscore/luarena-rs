@@ -6,6 +6,9 @@ function m.on_tick(tick)
 	-- print("  Current y: " .. me.y())
 	if tick < 20 then
 		return { me.move_right(3.5) }
+	elseif tick == 100 then
+		print("shooting!!!!")
+		return { me.attack(0.5) }
 	else
 		return { me.turn(0.1), me.turn_head(-0.02) }
 	end

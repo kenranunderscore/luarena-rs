@@ -353,10 +353,19 @@ impl Player {
     }
 }
 
+pub struct Attack {
+    pub id: usize,
+    pub pos: Point,
+    pub owner: u8,
+    pub heading: f32,
+    pub velocity: f32,
+}
+
 pub struct GameState {
     pub tick: i32,
     pub round: i32,
     pub players: Vec<Player>,
+    pub attacks: Vec<Attack>,
 }
 
 impl GameState {
@@ -365,6 +374,7 @@ impl GameState {
             tick: 0,
             round: 1,
             players: Vec::new(),
+            attacks: vec![],
         }
     }
 }
@@ -576,10 +586,69 @@ fn determine_vision_events(state: &GameState, event_manager: &mut EventManager) 
     }
 }
 
+fn create_attacks(state: &mut GameState, _event_manager: &mut EventManager) {
+    for player in state.players.iter_mut() {
+        if player.intent.attack {
+            player.intent.attack = false;
+            let attack = Attack {
+                id: state.attacks.len(),
+                owner: player.id,
+                pos: player.pos.borrow().clone(),
+                velocity: 2.5,
+                heading: player.arms_heading,
+            };
+            // TODO: attack created event
+            // event_manager.record_event(GameEvent::AttackCreated(
+            //     player.id,
+            //     player.pos.borrow().clone(),
+            // ));
+            state.attacks.push(attack);
+        }
+    }
+}
+
+fn inside_arena(x: i32, y: i32) -> bool {
+    x >= 0 && x <= WIDTH && y >= 0 && y <= HEIGHT
+}
+
+fn transition_attacks(state: &mut GameState, _event_manager: &mut EventManager) {
+    // FIXME: this is the dumb way
+    let mut to_remove: Vec<usize> = vec![];
+    for attack in state.attacks.iter_mut() {
+        let (x, y) = math_utils::line_endpoint(
+            attack.pos.x as f32,
+            attack.pos.y as f32,
+            attack.velocity,
+            attack.heading,
+        );
+        let new_x = x.round() as i32;
+        let new_y = y.round() as i32;
+        if inside_arena(new_x, new_y) {
+            // TODO: check for hits
+            // TODO: attack advanced event
+            attack.pos.x = new_x;
+            attack.pos.y = new_y;
+        } else {
+            // TODO: attack missed event
+            to_remove.push(attack.id);
+        }
+    }
+
+    // FIXME: this can't be right
+    for id in to_remove.iter() {
+        if let Some(i) = state.attacks.iter().position(|attack| attack.id == *id) {
+            println!("removing....");
+            state.attacks.remove(i);
+        }
+    }
+}
+
 pub fn step(state: &mut GameState, event_manager: &mut EventManager) -> LuaResult<()> {
     event_manager.next_tick(state);
     determine_vision_events(state, event_manager);
     advance_players(state, event_manager);
+    create_attacks(state, event_manager);
+    transition_attacks(state, event_manager);
     let game_events = &event_manager.current_events;
     for player in state.players.iter_mut() {
         // FIXME: sort events

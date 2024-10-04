@@ -11,8 +11,8 @@ use settings::*;
 
 fn main() -> LuaResult<()> {
     // FIXME: IDs
-    let player1 = Player::new("players/kai", 1, 70, 100)?;
-    let player2 = Player::new("players/lloyd", 2, 400, 100)?;
+    let player1 = Player::new("players/kai", 1, 70, 450)?;
+    let player2 = Player::new("players/lloyd", 2, 700, 600)?;
 
     let mut state = GameState::new();
     state.players = vec![player1, player2];
@@ -31,6 +31,7 @@ fn main() -> LuaResult<()> {
         d.clear_background(raylib::prelude::Color::BLACK);
         step(&mut state, &mut event_manager)?;
         render::players(&mut d, &state.players);
+        render::attacks(&mut d, &state.attacks);
     }
     Ok(())
 }

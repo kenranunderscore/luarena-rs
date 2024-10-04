@@ -1,7 +1,7 @@
 use raylib::prelude::*;
 
-use crate::game::Player;
-use crate::{math_utils, settings::*};
+use crate::game::{Attack, Player};
+use crate::{math_utils, settings::*, GameState};
 
 const VISION_COLOR: Color = Color {
     r: 150,
@@ -89,4 +89,16 @@ pub fn players(d: &mut raylib::drawing::RaylibDrawHandle, players: &Vec<Player>)
         heading(d, pos.x, pos.y, player.heading, player_color);
         d.draw_circle(pos.x, pos.y, PLAYER_RADIUS as f32, player_color);
     }
+}
+
+pub fn attacks(d: &mut raylib::drawing::RaylibDrawHandle, attacks: &Vec<Attack>) {
+    for attack in attacks {
+        let attack_color = Color::RED;
+        d.draw_circle(attack.pos.x, attack.pos.y, 5.0, attack_color);
+    }
+}
+
+pub fn game(d: &mut raylib::drawing::RaylibDrawHandle, state: &GameState) {
+    attacks(d, &state.attacks);
+    players(d, &state.players);
 }
