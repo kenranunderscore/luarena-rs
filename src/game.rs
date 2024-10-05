@@ -358,6 +358,7 @@ impl Player {
     }
 }
 
+#[derive(Clone)]
 pub struct Attack {
     pub id: usize,
     pub pos: Point,
@@ -417,7 +418,7 @@ pub enum GameEvent {
     Hit(usize, u8, u8, Point),
     AttackAdvanced(usize, Point),
     AttackMissed(usize),
-    AttackCreated(u8, Point, Attack),
+    AttackCreated(u8, Attack),
 }
 
 impl GameEvent {
@@ -429,7 +430,7 @@ impl GameEvent {
             GameEvent::Hit(_, _, _, _) => 3,
             GameEvent::AttackMissed(_) => 4,
             GameEvent::AttackAdvanced(_, _) => 5,
-            GameEvent::AttackCreated(_, _, _) => 6,
+            GameEvent::AttackCreated(_, _) => 6,
             GameEvent::PlayerHeadTurned(_, _) => 7,
             GameEvent::PlayerArmsTurned(_, _) => 8,
             GameEvent::EnemySeen(_, _, _) => 9,
@@ -557,7 +558,7 @@ fn game_events_to_player_events(player: &Player, game_events: &[GameEvent]) -> V
         GameEvent::Hit(_, _, _, _) => acc,
         GameEvent::AttackAdvanced(_, _) => acc,
         GameEvent::AttackMissed(_) => acc,
-        GameEvent::AttackCreated(_, _, _) => acc,
+        GameEvent::AttackCreated(_, _) => acc,
     })
 }
 
@@ -638,11 +639,7 @@ fn create_attacks(state: &mut GameState, event_manager: &mut EventManager) {
                 velocity: 2.5,
                 heading: player.arms_heading,
             };
-            event_manager.record(GameEvent::AttackCreated(
-                player.id,
-                player.pos.borrow().clone(),
-                attack,
-            ));
+            event_manager.record(GameEvent::AttackCreated(player.id, attack));
         }
     }
 }
@@ -651,8 +648,11 @@ fn inside_arena(x: i32, y: i32) -> bool {
     x >= 0 && x <= WIDTH && y >= 0 && y <= HEIGHT
 }
 
-fn attack_hits_player<'a>(attack: &Attack, players: &'a Vec<Player>) -> Option<&'a Player> {
-    players.iter().find(|player| {
+fn attack_hits_player<'a>(
+    attack: &Attack,
+    mut players: impl Iterator<Item = &'a Player>,
+) -> Option<&'a Player> {
+    players.find(|player| {
         player.id != attack.owner
             && attack.pos.dist(&player.pos.borrow()) <= ATTACK_RADIUS + PLAYER_RADIUS as f32
     })
@@ -695,8 +695,8 @@ fn tick_events(state: &GameState) -> Vec<GameEvent> {
     events
 }
 
-fn transition_attacks(state: &mut GameState, event_manager: &mut EventManager) {
-    for attack in state.attacks.iter_mut() {
+fn transition_attacks(state: &GameState, event_manager: &mut EventManager) {
+    for attack in state.attacks.iter() {
         let (x, y) = math_utils::line_endpoint(
             attack.pos.x as f32,
             attack.pos.y as f32,
@@ -706,7 +706,7 @@ fn transition_attacks(state: &mut GameState, event_manager: &mut EventManager) {
         let new_x = x.round() as i32;
         let new_y = y.round() as i32;
         if inside_arena(new_x, new_y) {
-            if let Some(player) = attack_hits_player(&attack, &mut state.players) {
+            if let Some(player) = attack_hits_player(&attack, state.living_players()) {
                 println!("player hit! it was {}", player.meta.name);
                 event_manager.record(GameEvent::Hit(
                     attack.id,
@@ -739,16 +739,40 @@ fn advance_game_state(state: &mut GameState, game_events: &[GameEvent]) {
                 }
             }
             GameEvent::PlayerArmsTurned(id, heading) => {
-                println!("arms turned to: {heading}");
                 if let Some(player) = state.players.iter_mut().find(|player| player.id == *id) {
                     player.arms_heading = *heading;
                 }
             }
             GameEvent::EnemySeen(_, _, _) => {}
-            GameEvent::Hit(_, _, _, _) => {}
-            GameEvent::AttackAdvanced(_, _) => {}
-            GameEvent::AttackMissed(_) => {}
-            GameEvent::AttackCreated(_, _, _) => {}
+            GameEvent::Hit(attack_id, _, victim, _) => {
+                if let Some(index) = state
+                    .attacks
+                    .iter()
+                    .position(|attack| attack.id == *attack_id)
+                {
+                    state.attacks.remove(index);
+                }
+                if let Some(player) = state.players.iter_mut().find(|player| player.id == *victim) {
+                    player.hp -= ATTACK_DAMAGE;
+                }
+            }
+            GameEvent::AttackAdvanced(id, pos) => {
+                let attack = state
+                    .attacks
+                    .iter_mut()
+                    .find(|attack| attack.id == *id)
+                    .expect("attack {id} not found");
+                attack.pos.x = pos.x;
+                attack.pos.y = pos.y;
+            }
+            GameEvent::AttackMissed(id) => {
+                if let Some(index) = state.attacks.iter().position(|attack| attack.id == *id) {
+                    state.attacks.remove(index);
+                }
+            }
+            GameEvent::AttackCreated(_owner, attack) => {
+                state.attacks.push(attack.clone());
+            }
         }
     }
 }
@@ -762,6 +786,14 @@ pub fn step(state: &mut GameState, event_manager: &mut EventManager) -> LuaResul
     create_attacks(state, event_manager);
     transition_attacks(state, event_manager);
     event_manager.end_tick();
+
+    // println!("====== ATTACKS ======");
+    // for attack in state.attacks.iter() {
+    //     println!(
+    //         "  attack [{}]: ({}, {})",
+    //         attack.id, attack.pos.x, attack.pos.y
+    //     );
+    // }
 
     let game_events: &[GameEvent] = event_manager.current_events();
     advance_game_state(state, game_events);

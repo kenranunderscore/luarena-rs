@@ -99,6 +99,6 @@ fn attacks(d: &mut raylib::drawing::RaylibDrawHandle, attacks: &Vec<Attack>) {
 }
 
 pub fn game(d: &mut raylib::drawing::RaylibDrawHandle, state: &GameState) {
-    attacks(d, &state.attacks);
     players(d, state.living_players());
+    attacks(d, &state.attacks);
 }
