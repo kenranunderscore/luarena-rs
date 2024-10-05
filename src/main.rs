@@ -14,7 +14,7 @@ fn main() -> LuaResult<()> {
     let player1 = Player::new("players/kai", 1, 70, 450)?;
     let player2 = Player::new("players/lloyd", 2, 700, 440)?;
 
-    let mut state = GameState::new();
+    let mut state = Game::new();
     state.players = vec![player1, player2];
     let (mut rl, thread) = raylib::init()
         .size(WIDTH, HEIGHT)
@@ -23,7 +23,7 @@ fn main() -> LuaResult<()> {
         .build();
     let mut event_manager = EventManager::new();
 
-    rl.set_target_fps(60);
+    rl.set_target_fps(200);
     while !rl.window_should_close() {
         let mut d = rl.begin_drawing(&thread);
         d.draw_fps(5, 5);

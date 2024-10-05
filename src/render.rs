@@ -1,7 +1,7 @@
 use raylib::prelude::*;
 
 use crate::game::{Attack, Player};
-use crate::{math_utils, settings::*, GameState};
+use crate::{math_utils, settings::*, Game};
 
 const VISION_COLOR: Color = Color {
     r: 150,
@@ -101,7 +101,7 @@ fn attacks(d: &mut raylib::drawing::RaylibDrawHandle, attacks: &[Attack]) {
     }
 }
 
-pub fn game(d: &mut raylib::drawing::RaylibDrawHandle, state: &GameState) {
+pub fn game(d: &mut raylib::drawing::RaylibDrawHandle, state: &Game) {
     players(d, state.living_players());
     attacks(d, &state.attacks);
 }
