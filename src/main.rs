@@ -19,7 +19,6 @@ fn main() -> LuaResult<()> {
     let (mut rl, thread) = raylib::init()
         .size(WIDTH, HEIGHT)
         .title("hello world")
-        .vsync()
         .msaa_4x()
         .build();
     let mut event_manager = EventManager::new();
@@ -27,6 +26,7 @@ fn main() -> LuaResult<()> {
     rl.set_target_fps(60);
     while !rl.window_should_close() {
         let mut d = rl.begin_drawing(&thread);
+        d.draw_fps(5, 5);
         d.clear_background(raylib::prelude::Color::BLACK);
         step(&mut state, &mut event_manager)?;
         render::game(&mut d, &state);
