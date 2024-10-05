@@ -26,11 +26,11 @@ fn main() -> LuaResult<()> {
 
     rl.set_target_fps(60);
     while !rl.window_should_close() {
-        state.tick += 1;
         let mut d = rl.begin_drawing(&thread);
         d.clear_background(raylib::prelude::Color::BLACK);
         step(&mut state, &mut event_manager)?;
         render::game(&mut d, &state);
+        state.tick += 1;
     }
     Ok(())
 }

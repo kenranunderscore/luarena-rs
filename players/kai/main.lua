@@ -1,5 +1,10 @@
 local m = {}
 
+function m.on_round_started(round)
+	print("new round!")
+    return {}
+end
+
 function m.on_tick(tick)
 	-- print("Tick: " .. tick)
 	-- print("  Current x: " .. me.x())

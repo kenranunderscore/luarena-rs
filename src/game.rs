@@ -209,7 +209,7 @@ impl LuaPlayer {
     pub fn on_event(&self, event: &PlayerEvent) -> LuaResult<Vec<PlayerCommand>> {
         match event {
             PlayerEvent::Tick(n) => self.on_tick(*n),
-            PlayerEvent::RoundStarted(_) => todo!("on_round_started"),
+            PlayerEvent::RoundStarted(n) => self.on_round_started(*n),
             PlayerEvent::EnemySeen(name, pos) => self.on_enemy_seen(name.to_string(), pos),
         }
     }
@@ -217,7 +217,7 @@ impl LuaPlayer {
     fn on_tick(&self, tick: i32) -> LuaResult<Vec<PlayerCommand>> {
         let t = self.table()?;
         if t.contains_key("on_tick")? {
-            let res: Vec<PlayerCommand> = self.table()?.call_function("on_tick", tick)?;
+            let res: Vec<PlayerCommand> = t.call_function("on_tick", tick)?;
             Ok(res)
         } else {
             Ok(vec![])
@@ -229,6 +229,17 @@ impl LuaPlayer {
             .table()?
             .call_function("on_enemy_seen", (enemy_name, pos.x, pos.y))?;
         Ok(res)
+    }
+
+    fn on_round_started(&self, round: i32) -> LuaResult<Vec<PlayerCommand>> {
+        let t = self.table()?;
+        if t.contains_key("on_round_started")? {
+            let res: Vec<PlayerCommand> = t.call_function("on_round_started", round)?;
+            println!("bang");
+            Ok(res)
+        } else {
+            Ok(vec![])
+        }
     }
 }
 
