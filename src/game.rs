@@ -367,11 +367,28 @@ pub struct Attack {
     pub velocity: f32,
 }
 
+pub struct Ids {
+    next: usize,
+}
+
+impl Ids {
+    pub fn new() -> Self {
+        Self { next: 0 }
+    }
+
+    pub fn next(&mut self) -> usize {
+        let next = self.next;
+        self.next += 1;
+        next
+    }
+}
+
 pub struct GameState {
     pub tick: i32,
     pub round: i32,
     pub players: Vec<Player>,
     pub attacks: Vec<Attack>,
+    attack_ids: Ids,
 }
 
 impl GameState {
@@ -381,6 +398,7 @@ impl GameState {
             round: 1,
             players: Vec::new(),
             attacks: vec![],
+            attack_ids: Ids::new(),
         }
     }
 
@@ -633,7 +651,7 @@ fn create_attacks(state: &mut GameState, event_manager: &mut EventManager) {
         if player.intent.attack {
             player.intent.attack = false;
             let attack = Attack {
-                id: state.attacks.len(),
+                id: state.attack_ids.next(),
                 owner: player.id,
                 pos: player.pos.borrow().clone(),
                 velocity: 2.5,
