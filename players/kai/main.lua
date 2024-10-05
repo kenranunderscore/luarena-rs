@@ -2,18 +2,14 @@ local m = {}
 
 function m.on_round_started(round)
 	print("new round!")
-    return {}
+	return {}
 end
 
 function m.on_tick(tick)
-	-- print("Tick: " .. tick)
-	-- print("  Current x: " .. me.x())
-	-- print("  Current y: " .. me.y())
-	if tick % 20 == 0 then
-		print("shooting!!!!")
-		return { me.move_right(3.5), me.attack(0.5) }
+	if tick % 10 == 0 then
+		return { me.move_right(3.5), me.attack(0.5), me.turn_head(0.04) }
 	else
-		return {}
+		return { me.turn_arms(-0.01) }
 	end
 end
 

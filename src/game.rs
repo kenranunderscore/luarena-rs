@@ -47,18 +47,18 @@ impl<'a> IntoLua<'a> for MovementDirection {
 
 #[derive(PartialEq, Debug)]
 enum PlayerCommand {
-    Attack(f32),
+    Move(MovementDirection, f32),
+    Attack,
     Turn(f32),
     TurnHead(f32),
     TurnArms(f32),
-    Move(MovementDirection, f32),
 }
 
 impl PlayerCommand {
     fn index(&self) -> i32 {
         match self {
             PlayerCommand::Move(_, _) => 0,
-            PlayerCommand::Attack(_) => 1,
+            PlayerCommand::Attack => 1,
             PlayerCommand::Turn(_) => 2,
             PlayerCommand::TurnHead(_) => 3,
             PlayerCommand::TurnArms(_) => 4,
@@ -75,7 +75,7 @@ impl<'a> FromLua<'a> for PlayerCommand {
                     let dir: MovementDirection = t.get("direction")?;
                     Ok(PlayerCommand::Move(dir, dist))
                 }
-                "attack" => Ok(PlayerCommand::Attack(t.get("angle")?)),
+                "attack" => Ok(PlayerCommand::Attack),
                 "turn" => Ok(PlayerCommand::Turn(t.get("angle")?)),
                 "turn_head" => Ok(PlayerCommand::TurnHead(t.get("angle")?)),
                 "turn_arms" => Ok(PlayerCommand::TurnArms(t.get("angle")?)),
@@ -99,9 +99,8 @@ fn create_tagged_table<'a>(lua: &'a Lua, tag: &str) -> LuaResult<LuaTable<'a>> {
 impl<'a> IntoLua<'a> for PlayerCommand {
     fn into_lua(self, lua: &'a Lua) -> LuaResult<LuaValue<'a>> {
         match self {
-            PlayerCommand::Attack(angle) => {
+            PlayerCommand::Attack => {
                 let t = create_tagged_table(&lua, "attack")?;
-                t.set("angle", angle)?;
                 Ok(LuaValue::Table(t))
             }
             PlayerCommand::Turn(angle) => {
@@ -212,6 +211,8 @@ impl LuaPlayer {
     {
         let t = self.table()?;
         if t.contains_key(name)? {
+            // TODO: decide whether to allow not returning anything from
+            // handlers
             let res = t.call_function(name, args)?;
             Ok(res)
         } else {
@@ -338,7 +339,7 @@ impl Player {
         })?;
         me.set("move_right", move_right_cmd)?;
 
-        let attack_cmd = lua.create_function(|_, angle: f32| Ok(PlayerCommand::Attack(angle)))?;
+        let attack_cmd = lua.create_function(|_, _: ()| Ok(PlayerCommand::Attack))?;
         me.set("attack", attack_cmd)?;
 
         let turn_cmd = lua.create_function(|_, angle: f32| Ok(PlayerCommand::Turn(angle)))?;
@@ -395,6 +396,7 @@ fn load_lua_player(player_dir: &str, meta: &PlayerMeta) -> LuaResult<LuaPlayer> 
 }
 
 fn reduce_commands(commands: &mut Vec<PlayerCommand>) {
+    // FIXME: check whether they're really reduced
     commands.sort_by_key(|cmd| cmd.index());
 }
 
@@ -408,14 +410,38 @@ fn valid_position(p: &Point) -> bool {
 pub enum GameEvent {
     Tick(i32),
     RoundStarted(i32),
+    RoundOver(Option<u8>),
+    PlayerHeadTurned(u8, f32),
+    PlayerArmsTurned(u8, f32),
     EnemySeen(u8, String, Point),
+    Hit(usize, u8, u8, Point),
+    AttackAdvanced(usize, Point),
+    AttackMissed(usize),
+    AttackCreated(u8, Point, Attack),
+}
+
+impl GameEvent {
+    fn index(&self) -> i32 {
+        match self {
+            GameEvent::RoundStarted(_) => 0,
+            GameEvent::RoundOver(_) => 1,
+            GameEvent::Tick(_) => 2,
+            GameEvent::Hit(_, _, _, _) => 3,
+            GameEvent::AttackMissed(_) => 4,
+            GameEvent::AttackAdvanced(_, _) => 5,
+            GameEvent::AttackCreated(_, _, _) => 6,
+            GameEvent::PlayerHeadTurned(_, _) => 7,
+            GameEvent::PlayerArmsTurned(_, _) => 8,
+            GameEvent::EnemySeen(_, _, _) => 9,
+        }
+    }
 }
 
 fn clamp_turn_angle(angle: f32) -> f32 {
     math_utils::clamp(angle, -ANGLE_OF_ACTION, ANGLE_OF_ACTION)
 }
 
-fn advance_players(state: &mut GameState, _event_manager: &mut EventManager) {
+fn transition_players(state: &mut GameState, event_manager: &mut EventManager) {
     // FIXME: refactor: probably no need to mutate players for the next
     // positions, or even keep them in there as state at all!
     for player in state.players.iter_mut() {
@@ -462,7 +488,8 @@ fn advance_players(state: &mut GameState, _event_manager: &mut EventManager) {
             );
             let heading = clamp_turn_angle(player.head_heading + delta);
             let remaining = clamp_turn_angle(player.head_heading + delta) - heading;
-            player.head_heading = heading;
+            event_manager.record(GameEvent::PlayerHeadTurned(player.id, heading));
+            // FIXME: how to handle intent when using events for the state?
             player.intent.turn_head_angle = remaining;
         }
 
@@ -474,7 +501,7 @@ fn advance_players(state: &mut GameState, _event_manager: &mut EventManager) {
             );
             let heading = clamp_turn_angle(player.arms_heading + delta);
             let remaining = clamp_turn_angle(player.arms_heading + delta) - heading;
-            player.arms_heading = heading;
+            event_manager.record(GameEvent::PlayerArmsTurned(player.id, heading));
             player.intent.turn_arms_angle = remaining;
         }
     }
@@ -507,7 +534,7 @@ enum PlayerEvent {
     EnemySeen(String, Point),
 }
 
-fn game_events_to_player_events(player: &Player, game_events: &Vec<GameEvent>) -> Vec<PlayerEvent> {
+fn game_events_to_player_events(player: &Player, game_events: &[GameEvent]) -> Vec<PlayerEvent> {
     // FIXME: when to generate enemy_seen events?
     game_events.iter().fold(Vec::new(), |mut acc, e| match e {
         GameEvent::Tick(n) => {
@@ -518,12 +545,19 @@ fn game_events_to_player_events(player: &Player, game_events: &Vec<GameEvent>) -
             acc.push(PlayerEvent::RoundStarted(*n));
             acc
         }
+        GameEvent::RoundOver(_) => acc,
         GameEvent::EnemySeen(id, target, pos) => {
             if *id == player.id {
                 acc.push(PlayerEvent::EnemySeen(target.clone(), pos.clone()));
             }
             acc
         }
+        GameEvent::PlayerHeadTurned(_, _) => acc,
+        GameEvent::PlayerArmsTurned(_, _) => acc,
+        GameEvent::Hit(_, _, _, _) => acc,
+        GameEvent::AttackAdvanced(_, _) => acc,
+        GameEvent::AttackMissed(_) => acc,
+        GameEvent::AttackCreated(_, _, _) => acc,
     })
 }
 
@@ -582,7 +616,7 @@ fn determine_vision_events(state: &GameState, event_manager: &mut EventManager) 
                     PLAYER_RADIUS as f32,
                     ANGLE_OF_VISION,
                 ) {
-                    event_manager.record_event(GameEvent::EnemySeen(
+                    event_manager.record(GameEvent::EnemySeen(
                         player.id,
                         name.to_string(),
                         pos.clone(),
@@ -593,7 +627,7 @@ fn determine_vision_events(state: &GameState, event_manager: &mut EventManager) 
     }
 }
 
-fn create_attacks(state: &mut GameState, _event_manager: &mut EventManager) {
+fn create_attacks(state: &mut GameState, event_manager: &mut EventManager) {
     for player in state.players.iter_mut() {
         if player.intent.attack {
             player.intent.attack = false;
@@ -604,12 +638,11 @@ fn create_attacks(state: &mut GameState, _event_manager: &mut EventManager) {
                 velocity: 2.5,
                 heading: player.arms_heading,
             };
-            // TODO: attack created event
-            // event_manager.record_event(GameEvent::AttackCreated(
-            //     player.id,
-            //     player.pos.borrow().clone(),
-            // ));
-            state.attacks.push(attack);
+            event_manager.record(GameEvent::AttackCreated(
+                player.id,
+                player.pos.borrow().clone(),
+                attack,
+            ));
         }
     }
 }
@@ -618,84 +651,11 @@ fn inside_arena(x: i32, y: i32) -> bool {
     x >= 0 && x <= WIDTH && y >= 0 && y <= HEIGHT
 }
 
-fn attack_hits_player<'a>(attack: &Attack, players: &'a mut Vec<Player>) -> Option<&'a mut Player> {
-    players.iter_mut().find(|player| {
+fn attack_hits_player<'a>(attack: &Attack, players: &'a Vec<Player>) -> Option<&'a Player> {
+    players.iter().find(|player| {
         player.id != attack.owner
             && attack.pos.dist(&player.pos.borrow()) <= ATTACK_RADIUS + PLAYER_RADIUS as f32
     })
-}
-
-fn transition_attacks(state: &mut GameState, _event_manager: &mut EventManager) {
-    // FIXME: this is the dumb way
-    let mut to_remove: Vec<usize> = vec![];
-    for attack in state.attacks.iter_mut() {
-        let (x, y) = math_utils::line_endpoint(
-            attack.pos.x as f32,
-            attack.pos.y as f32,
-            attack.velocity,
-            attack.heading,
-        );
-        let new_x = x.round() as i32;
-        let new_y = y.round() as i32;
-        if inside_arena(new_x, new_y) {
-            attack.pos.x = new_x;
-            attack.pos.y = new_y;
-            if let Some(player) = attack_hits_player(&attack, &mut state.players) {
-                // TODO: hit events
-                println!("player hit! it was {}", player.meta.name);
-                player.hp -= 15.0;
-                if player.hp <= 0.0 {
-                    println!("player {} died", player.meta.name);
-                }
-                to_remove.push(attack.id);
-            }
-            // TODO: attack advanced event
-        } else {
-            // TODO: attack missed event
-            to_remove.push(attack.id);
-        }
-    }
-
-    // FIXME: this can't be good
-    for id in to_remove.iter() {
-        if let Some(i) = state.attacks.iter().position(|attack| attack.id == *id) {
-            println!("removing....");
-            state.attacks.remove(i);
-        }
-    }
-}
-
-pub fn step(state: &mut GameState, event_manager: &mut EventManager) -> LuaResult<()> {
-    event_manager.next_tick(state);
-    // FIXME: EnemySeen is unnecessary/useless as a game event -> it only
-    // matters for players
-    determine_vision_events(state, event_manager);
-    advance_players(state, event_manager);
-    create_attacks(state, event_manager);
-    transition_attacks(state, event_manager);
-    let game_events = &event_manager.current_events;
-    for player in state.players.iter_mut() {
-        // FIXME: sort events
-        let player_events = game_events_to_player_events(player, game_events);
-        let mut commands = dispatch_player_events(player, player_events)?;
-        reduce_commands(&mut commands);
-        for cmd in commands.iter() {
-            match cmd {
-                PlayerCommand::Attack(angle) => {
-                    player.intent.turn_arms_angle = *angle;
-                    player.intent.attack = true;
-                }
-                PlayerCommand::Turn(angle) => player.intent.turn_angle = *angle,
-                PlayerCommand::TurnHead(angle) => player.intent.turn_head_angle = *angle,
-                PlayerCommand::TurnArms(angle) => player.intent.turn_arms_angle = *angle,
-                PlayerCommand::Move(dir, dist) => {
-                    player.intent.direction = dir.clone();
-                    player.intent.distance = *dist;
-                }
-            }
-        }
-    }
-    Ok(())
 }
 
 pub struct EventManager {
@@ -710,12 +670,20 @@ impl EventManager {
     }
 
     // FIXME: don't pass the whole game state
-    pub fn next_tick(&mut self, state: &GameState) {
+    pub fn init_tick(&mut self, state: &GameState) {
         self.current_events = tick_events(state);
     }
 
-    pub fn record_event(&mut self, event: GameEvent) {
+    pub fn end_tick(&mut self) {
+        self.current_events.sort_by_key(|event| event.index());
+    }
+
+    pub fn record(&mut self, event: GameEvent) {
         self.current_events.push(event);
+    }
+
+    pub fn current_events(&self) -> &[GameEvent] {
+        &self.current_events
     }
 }
 
@@ -725,6 +693,97 @@ fn tick_events(state: &GameState) -> Vec<GameEvent> {
         events.push(GameEvent::RoundStarted(state.round));
     }
     events
+}
+
+fn transition_attacks(state: &mut GameState, event_manager: &mut EventManager) {
+    for attack in state.attacks.iter_mut() {
+        let (x, y) = math_utils::line_endpoint(
+            attack.pos.x as f32,
+            attack.pos.y as f32,
+            attack.velocity,
+            attack.heading,
+        );
+        let new_x = x.round() as i32;
+        let new_y = y.round() as i32;
+        if inside_arena(new_x, new_y) {
+            if let Some(player) = attack_hits_player(&attack, &mut state.players) {
+                println!("player hit! it was {}", player.meta.name);
+                event_manager.record(GameEvent::Hit(
+                    attack.id,
+                    attack.owner,
+                    player.id,
+                    attack.pos.clone(),
+                ));
+            } else {
+                event_manager.record(GameEvent::AttackAdvanced(
+                    attack.id,
+                    Point { x: new_x, y: new_y },
+                ));
+            }
+        } else {
+            event_manager.record(GameEvent::AttackMissed(attack.id));
+        }
+    }
+}
+
+fn advance_game_state(state: &mut GameState, game_events: &[GameEvent]) {
+    for event in game_events.iter() {
+        match event {
+            GameEvent::Tick(_) => {}
+            GameEvent::RoundStarted(_) => {}
+            GameEvent::RoundOver(_) => todo!("handle end of round"),
+            // FIXME/IDEA: really store only the delta, as for event sourcing?
+            GameEvent::PlayerHeadTurned(id, heading) => {
+                if let Some(player) = state.players.iter_mut().find(|player| player.id == *id) {
+                    player.head_heading = *heading;
+                }
+            }
+            GameEvent::PlayerArmsTurned(id, heading) => {
+                println!("arms turned to: {heading}");
+                if let Some(player) = state.players.iter_mut().find(|player| player.id == *id) {
+                    player.arms_heading = *heading;
+                }
+            }
+            GameEvent::EnemySeen(_, _, _) => {}
+            GameEvent::Hit(_, _, _, _) => {}
+            GameEvent::AttackAdvanced(_, _) => {}
+            GameEvent::AttackMissed(_) => {}
+            GameEvent::AttackCreated(_, _, _) => {}
+        }
+    }
+}
+
+pub fn step(state: &mut GameState, event_manager: &mut EventManager) -> LuaResult<()> {
+    event_manager.init_tick(state);
+    // FIXME: EnemySeen is unnecessary/useless as a game event -> it only
+    // matters for players
+    determine_vision_events(state, event_manager);
+    transition_players(state, event_manager);
+    create_attacks(state, event_manager);
+    transition_attacks(state, event_manager);
+    event_manager.end_tick();
+
+    let game_events: &[GameEvent] = event_manager.current_events();
+    advance_game_state(state, game_events);
+
+    for player in state.players.iter_mut() {
+        let player_events = game_events_to_player_events(player, game_events);
+        let mut commands = dispatch_player_events(player, player_events)?;
+        reduce_commands(&mut commands);
+        for cmd in commands.iter() {
+            match cmd {
+                PlayerCommand::Attack => player.intent.attack = true,
+                PlayerCommand::Turn(angle) => player.intent.turn_angle = *angle,
+                PlayerCommand::TurnHead(angle) => player.intent.turn_head_angle = *angle,
+                PlayerCommand::TurnArms(angle) => player.intent.turn_arms_angle = *angle,
+                PlayerCommand::Move(dir, dist) => {
+                    player.intent.direction = dir.clone();
+                    player.intent.distance = *dist;
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
