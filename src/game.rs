@@ -539,7 +539,6 @@ fn can_spot(
     let left = view_angle - delta;
     let right = view_angle + delta;
     let dist = origin.dist(target);
-    // TODO: really not atan2?
     let alpha = f32::atan(player_radius / dist);
     let angle = math_utils::normalize_abs_angle(math_utils::angle_between(origin, target));
     let alpha_left = angle - alpha;
