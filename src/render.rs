@@ -80,7 +80,10 @@ fn to_raylib_color(color: &crate::game::Color) -> Color {
     }
 }
 
-fn players<'a>(d: &mut raylib::drawing::RaylibDrawHandle, players: impl Iterator<Item = &'a Player>) {
+fn players<'a>(
+    d: &mut raylib::drawing::RaylibDrawHandle,
+    players: impl Iterator<Item = &'a Player>,
+) {
     for player in players {
         let pos = player.pos.borrow();
         let player_color = to_raylib_color(&player.meta.color);
@@ -91,7 +94,7 @@ fn players<'a>(d: &mut raylib::drawing::RaylibDrawHandle, players: impl Iterator
     }
 }
 
-fn attacks(d: &mut raylib::drawing::RaylibDrawHandle, attacks: &Vec<Attack>) {
+fn attacks(d: &mut raylib::drawing::RaylibDrawHandle, attacks: &[Attack]) {
     for attack in attacks {
         let attack_color = Color::RED;
         d.draw_circle(attack.pos.x, attack.pos.y, ATTACK_RADIUS, attack_color);
