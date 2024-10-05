@@ -206,39 +206,26 @@ impl LuaPlayer {
         Ok(t)
     }
 
+    fn call_event_handler<A>(&self, name: &str, args: A) -> LuaResult<Vec<PlayerCommand>>
+    where
+        A: for<'a> IntoLuaMulti<'a>,
+    {
+        let t = self.table()?;
+        if t.contains_key(name)? {
+            let res = t.call_function(name, args)?;
+            Ok(res)
+        } else {
+            Ok(vec![])
+        }
+    }
+
     pub fn on_event(&self, event: &PlayerEvent) -> LuaResult<Vec<PlayerCommand>> {
         match event {
-            PlayerEvent::Tick(n) => self.on_tick(*n),
-            PlayerEvent::RoundStarted(n) => self.on_round_started(*n),
-            PlayerEvent::EnemySeen(name, pos) => self.on_enemy_seen(name.to_string(), pos),
-        }
-    }
-
-    fn on_tick(&self, tick: i32) -> LuaResult<Vec<PlayerCommand>> {
-        let t = self.table()?;
-        if t.contains_key("on_tick")? {
-            let res: Vec<PlayerCommand> = t.call_function("on_tick", tick)?;
-            Ok(res)
-        } else {
-            Ok(vec![])
-        }
-    }
-
-    fn on_enemy_seen(&self, enemy_name: String, pos: &Point) -> LuaResult<Vec<PlayerCommand>> {
-        let res: Vec<PlayerCommand> = self
-            .table()?
-            .call_function("on_enemy_seen", (enemy_name, pos.x, pos.y))?;
-        Ok(res)
-    }
-
-    fn on_round_started(&self, round: i32) -> LuaResult<Vec<PlayerCommand>> {
-        let t = self.table()?;
-        if t.contains_key("on_round_started")? {
-            let res: Vec<PlayerCommand> = t.call_function("on_round_started", round)?;
-            println!("bang");
-            Ok(res)
-        } else {
-            Ok(vec![])
+            PlayerEvent::Tick(n) => self.call_event_handler("on_tick", *n),
+            PlayerEvent::RoundStarted(n) => self.call_event_handler("on_round_started", *n),
+            PlayerEvent::EnemySeen(name, pos) => {
+                self.call_event_handler("on_enemy_seen", (name.to_string(), pos.x, pos.y))
+            }
         }
     }
 }
@@ -757,7 +744,7 @@ mod tests {
         fn call_on_tick() {
             let player = LuaPlayer::new("return { on_tick = function(n) return { { tag = \"move\", distance = 13.12, direction = \"left\" } } end }")
                 .expect("lua player could not be created");
-            let res: Vec<PlayerCommand> = player.on_tick(17).expect("on_tick failed");
+            let res: Vec<PlayerCommand> = player.on_event(&PlayerEvent::Tick(17)).unwrap();
             let cmd = res.first().expect("some command");
             assert_eq!(*cmd, PlayerCommand::Move(MovementDirection::Left, 13.12));
         }
@@ -765,7 +752,7 @@ mod tests {
         #[test]
         fn call_on_tick_if_missing() {
             let player = LuaPlayer::new("return {}").unwrap();
-            let res: Vec<PlayerCommand> = player.on_tick(17).expect("on_tick failed");
+            let res: Vec<PlayerCommand> = player.on_event(&PlayerEvent::Tick(17)).unwrap();
             assert_eq!(res.len(), 0);
         }
     }
