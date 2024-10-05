@@ -30,8 +30,7 @@ fn main() -> LuaResult<()> {
         let mut d = rl.begin_drawing(&thread);
         d.clear_background(raylib::prelude::Color::BLACK);
         step(&mut state, &mut event_manager)?;
-        render::players(&mut d, &state.players);
-        render::attacks(&mut d, &state.attacks);
+        render::game(&mut d, &state);
     }
     Ok(())
 }

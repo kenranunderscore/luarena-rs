@@ -303,6 +303,10 @@ impl Player {
         math_utils::normalize_abs_angle(self.heading + self.arms_heading)
     }
 
+    pub fn alive(&self) -> bool {
+        self.hp > 0.0
+    }
+
     fn register_lua_library(&self) -> LuaResult<()> {
         let lua = &self.lua_player.lua;
         let me = lua.create_table()?;
@@ -378,6 +382,10 @@ impl GameState {
             players: Vec::new(),
             attacks: vec![],
         }
+    }
+
+    pub fn living_players(&self) -> impl Iterator<Item = &Player> {
+        self.players.iter().filter(|player| player.alive())
     }
 }
 
