@@ -383,11 +383,18 @@ impl Ids {
     }
 }
 
+enum RoundState {
+    Ongoing,
+    Won(u8),
+    Draw,
+}
+
 pub struct Game {
     pub tick: i32,
     pub round: i32,
     pub players: Vec<Player>,
     pub attacks: Vec<Attack>,
+    pub round_state: RoundState,
     attack_ids: Ids,
 }
 
@@ -399,6 +406,7 @@ impl Game {
             players: Vec::new(),
             attacks: vec![],
             attack_ids: Ids::new(),
+            round_state: RoundState::Ongoing,
         }
     }
 
@@ -467,10 +475,10 @@ fn clamp_turn_angle(angle: f32) -> f32 {
     math_utils::clamp(angle, -ANGLE_OF_ACTION, ANGLE_OF_ACTION)
 }
 
-fn transition_players(state: &mut Game, event_manager: &mut EventManager) {
+fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
     // FIXME: refactor: probably no need to mutate players for the next
     // positions, or even keep them in there as state at all!
-    for player in state.players.iter_mut() {
+    for player in game.players.iter_mut() {
         {
             let delta = math_utils::clamp(player.intent.turn_angle, -MAX_TURN_RATE, MAX_TURN_RATE);
             player.intent.turn_angle = if player.intent.turn_angle.abs() < MAX_TURN_RATE {
@@ -532,12 +540,12 @@ fn transition_players(state: &mut Game, event_manager: &mut EventManager) {
         }
     }
 
-    let next_positions: Vec<(u8, NextMove)> = state
+    let next_positions: Vec<(u8, NextMove)> = game
         .players
         .iter()
         .map(|player| (player.id, player.next_move.clone()))
         .collect();
-    state.players.iter_mut().for_each(|player| {
+    game.players.iter_mut().for_each(|player| {
         if !next_positions.iter().any(|(id, next_move)| {
             *id != player.id && players_collide(&player.pos.borrow(), &next_move.pos)
         }) {
@@ -619,9 +627,9 @@ fn dispatch_player_events(
     Ok(commands)
 }
 
-fn determine_vision_events(state: &Game, event_manager: &mut EventManager) {
+fn determine_vision_events(game: &Game, event_manager: &mut EventManager) {
     // FIXME: learn how to do this in a better way!
-    let player_positions: Vec<(u8, String, Point)> = state
+    let player_positions: Vec<(u8, String, Point)> = game
         .players
         .iter()
         .map(|player| {
@@ -632,7 +640,7 @@ fn determine_vision_events(state: &Game, event_manager: &mut EventManager) {
             )
         })
         .collect();
-    for player in state.living_players() {
+    for player in game.living_players() {
         for (id, name, pos) in player_positions.iter() {
             if *id != player.id {
                 if can_spot(
@@ -653,12 +661,12 @@ fn determine_vision_events(state: &Game, event_manager: &mut EventManager) {
     }
 }
 
-fn create_attacks(state: &mut Game, event_manager: &mut EventManager) {
-    for player in state.players.iter_mut() {
+fn create_attacks(game: &mut Game, event_manager: &mut EventManager) {
+    for player in game.players.iter_mut() {
         if player.intent.attack {
             player.intent.attack = false;
             let attack = Attack {
-                id: state.attack_ids.next(),
+                id: game.attack_ids.next(),
                 owner: player.id,
                 pos: player.pos.borrow().clone(),
                 velocity: 2.5,
@@ -695,8 +703,8 @@ impl EventManager {
     }
 
     // FIXME: don't pass the whole game state
-    pub fn init_tick(&mut self, state: &Game) {
-        self.current_events = tick_events(state);
+    pub fn init_tick(&mut self, game: &Game) {
+        self.current_events = tick_events(game);
     }
 
     pub fn end_tick(&mut self) {
@@ -712,16 +720,16 @@ impl EventManager {
     }
 }
 
-fn tick_events(state: &Game) -> Vec<GameEvent> {
-    let mut events = vec![GameEvent::Tick(state.tick)];
-    if state.tick == 0 {
-        events.push(GameEvent::RoundStarted(state.round));
+fn tick_events(game: &Game) -> Vec<GameEvent> {
+    let mut events = vec![GameEvent::Tick(game.tick)];
+    if game.tick == 0 {
+        events.push(GameEvent::RoundStarted(game.round));
     }
     events
 }
 
-fn transition_attacks(state: &Game, event_manager: &mut EventManager) {
-    for attack in state.attacks.iter() {
+fn transition_attacks(game: &Game, event_manager: &mut EventManager) {
+    for attack in game.attacks.iter() {
         let (x, y) = math_utils::line_endpoint(
             attack.pos.x as f32,
             attack.pos.y as f32,
@@ -731,7 +739,7 @@ fn transition_attacks(state: &Game, event_manager: &mut EventManager) {
         let new_x = x.round() as i32;
         let new_y = y.round() as i32;
         if inside_arena(new_x, new_y) {
-            if let Some(player) = attack_hits_player(&attack, state.living_players()) {
+            if let Some(player) = attack_hits_player(&attack, game.living_players()) {
                 println!("player hit! it was {}", player.meta.name);
                 event_manager.record(GameEvent::Hit(
                     attack.id,
@@ -751,7 +759,7 @@ fn transition_attacks(state: &Game, event_manager: &mut EventManager) {
     }
 }
 
-fn advance_game_state(state: &mut Game, game_events: &[GameEvent]) {
+fn advance_game_state(game: &mut Game, game_events: &[GameEvent]) {
     for event in game_events.iter() {
         match event {
             GameEvent::Tick(_) => {}
@@ -759,24 +767,24 @@ fn advance_game_state(state: &mut Game, game_events: &[GameEvent]) {
             GameEvent::RoundOver(_) => todo!("handle end of round"),
             // FIXME/IDEA: really store only the delta, as for event sourcing?
             GameEvent::PlayerHeadTurned(id, heading) => {
-                state.player(*id).head_heading = *heading;
+                game.player(*id).head_heading = *heading;
             }
             GameEvent::PlayerArmsTurned(id, heading) => {
-                state.player(*id).arms_heading = *heading;
+                game.player(*id).arms_heading = *heading;
             }
             GameEvent::EnemySeen(_, _, _) => {}
             GameEvent::Hit(attack_id, _, victim_id, _) => {
-                if let Some(index) = state
+                if let Some(index) = game
                     .attacks
                     .iter()
                     .position(|attack| attack.id == *attack_id)
                 {
-                    state.attacks.remove(index);
+                    game.attacks.remove(index);
                 }
-                state.player(*victim_id).hp -= ATTACK_DAMAGE;
+                game.player(*victim_id).hp -= ATTACK_DAMAGE;
             }
             GameEvent::AttackAdvanced(id, pos) => {
-                let attack = state
+                let attack = game
                     .attacks
                     .iter_mut()
                     .find(|attack| attack.id == *id)
@@ -785,31 +793,31 @@ fn advance_game_state(state: &mut Game, game_events: &[GameEvent]) {
                 attack.pos.y = pos.y;
             }
             GameEvent::AttackMissed(id) => {
-                if let Some(index) = state.attacks.iter().position(|attack| attack.id == *id) {
-                    state.attacks.remove(index);
+                if let Some(index) = game.attacks.iter().position(|attack| attack.id == *id) {
+                    game.attacks.remove(index);
                 }
             }
             GameEvent::AttackCreated(_owner, attack) => {
-                state.attacks.push(attack.clone());
+                game.attacks.push(attack.clone());
             }
         }
     }
 }
 
-pub fn step(state: &mut Game, event_manager: &mut EventManager) -> LuaResult<()> {
-    event_manager.init_tick(state);
+pub fn step(game: &mut Game, event_manager: &mut EventManager) -> LuaResult<()> {
+    event_manager.init_tick(game);
     // FIXME: EnemySeen is unnecessary/useless as a game event -> it only
     // matters for players
-    determine_vision_events(state, event_manager);
-    transition_players(state, event_manager);
-    create_attacks(state, event_manager);
-    transition_attacks(state, event_manager);
+    determine_vision_events(game, event_manager);
+    transition_players(game, event_manager);
+    create_attacks(game, event_manager);
+    transition_attacks(game, event_manager);
     event_manager.end_tick();
 
     let game_events: &[GameEvent] = event_manager.current_events();
-    advance_game_state(state, game_events);
+    advance_game_state(game, game_events);
 
-    for player in state.players.iter_mut() {
+    for player in game.players.iter_mut() {
         let player_events = game_events_to_player_events(player, game_events);
         let mut commands = dispatch_player_events(player, player_events)?;
         reduce_commands(&mut commands);
@@ -825,6 +833,31 @@ pub fn step(state: &mut Game, event_manager: &mut EventManager) -> LuaResult<()>
                 }
             }
         }
+    }
+    Ok(())
+}
+
+pub fn run_round(game: &mut Game, event_manager: &mut EventManager) -> LuaResult<()> {
+    step(game, event_manager)?;
+    match game.round_state {
+        RoundState::Ongoing => run_round(game, event_manager),
+        RoundState::Won(id) => {
+            println!("Player {id} has won!");
+            Ok(())
+        }
+        RoundState::Draw => {
+            println!("--- DRAW ---");
+            Ok(())
+        }
+    }
+}
+
+pub fn run_game(game: &mut Game) -> LuaResult<()> {
+    let mut event_manager = EventManager::new();
+    let max_rounds = 2;
+    for round in 1..max_rounds {
+        game.round = round;
+        run_round(game, &mut event_manager)?;
     }
     Ok(())
 }
