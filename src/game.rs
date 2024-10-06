@@ -806,14 +806,6 @@ pub fn step(state: &mut Game, event_manager: &mut EventManager) -> LuaResult<()>
     transition_attacks(state, event_manager);
     event_manager.end_tick();
 
-    // println!("====== ATTACKS ======");
-    // for attack in state.attacks.iter() {
-    //     println!(
-    //         "  attack [{}]: ({}, {})",
-    //         attack.id, attack.pos.x, attack.pos.y
-    //     );
-    // }
-
     let game_events: &[GameEvent] = event_manager.current_events();
     advance_game_state(state, game_events);
 
