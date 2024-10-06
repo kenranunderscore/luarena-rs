@@ -85,7 +85,7 @@ fn players<'a>(
     players: impl Iterator<Item = &'a Player>,
 ) {
     for player in players {
-        let pos = player.pos.borrow();
+        let pos = player.pos.read().unwrap();
         let player_color = to_raylib_color(&player.meta.color);
         player_vision(d, pos.x, pos.y, player.effective_head_heading());
         player_arms(d, pos.x, pos.y, player.effective_arms_heading());

@@ -1,4 +1,4 @@
-use std::{cell::RefCell, rc::Rc};
+use std::sync::{Arc, RwLock};
 
 use mlua::prelude::*;
 
@@ -159,12 +159,12 @@ pub struct PlayerMeta {
     entrypoint: String,
 }
 
-struct LuaPlayer {
+pub struct LuaImpl {
     lua: Lua,
     key: LuaRegistryKey,
 }
 
-impl LuaPlayer {
+impl LuaImpl {
     pub fn read_meta(player_dir: &str) -> LuaResult<PlayerMeta> {
         let lua = Lua::new();
         // FIXME: use PathBuf or similar
@@ -186,7 +186,7 @@ impl LuaPlayer {
         })
     }
 
-    fn new(code: &str) -> LuaResult<Self> {
+    pub fn new(code: &str) -> LuaResult<Self> {
         let lua = Lua::new();
         lua.load_from_std_lib(LuaStdLib::ALL_SAFE)?;
 
@@ -262,9 +262,8 @@ struct NextMove {
 pub struct Player {
     pub id: u8,
     pub hp: f32,
-    lua_player: LuaPlayer,
     pub meta: PlayerMeta,
-    pub pos: Rc<RefCell<Point>>,
+    pub pos: Arc<RwLock<Point>>,
     pub heading: f32,
     pub head_heading: f32,
     pub arms_heading: f32,
@@ -274,13 +273,12 @@ pub struct Player {
 
 impl Player {
     pub fn new(player_dir: &str, id: u8, x: i32, y: i32) -> LuaResult<Player> {
-        let meta = LuaPlayer::read_meta(player_dir)?;
+        let meta = LuaImpl::read_meta(player_dir)?;
         let res = Self {
             id,
             hp: 100.0,
-            lua_player: load_lua_player(player_dir, &meta)?,
             meta,
-            pos: Rc::new(RefCell::new(Point { x, y })),
+            pos: Arc::new(RwLock::new(Point { x, y })),
             heading: 0.0,
             head_heading: 0.0,
             arms_heading: 0.0,
@@ -290,7 +288,6 @@ impl Player {
             },
             intent: Default::default(),
         };
-        res.register_lua_library()?;
         Ok(res)
     }
 
@@ -305,57 +302,53 @@ impl Player {
     pub fn alive(&self) -> bool {
         self.hp > 0.0
     }
+}
 
-    fn register_lua_library(&self) -> LuaResult<()> {
-        let lua = &self.lua_player.lua;
-        let me = lua.create_table()?;
+fn register_lua_library(player: &Player, lua_player: &LuaImpl) -> LuaResult<()> {
+    let lua = &lua_player.lua;
+    let me = lua.create_table()?;
 
-        let pos_ref = Rc::clone(&self.pos);
-        let x = lua.create_function(move |_, _: ()| Ok(pos_ref.borrow().x))?;
-        me.set("x", x)?;
+    let pos_ref = Arc::clone(&player.pos);
+    let x = lua.create_function(move |_, _: ()| Ok(pos_ref.read().unwrap().x))?;
+    me.set("x", x)?;
 
-        // need to clone the ref again, as we move to make the closure work
-        let pos_ref = Rc::clone(&self.pos);
-        let y = lua.create_function(move |_, _: ()| Ok(pos_ref.borrow().y))?;
-        me.set("y", y)?;
+    // need to clone the ref again, as we move to make the closure work
+    let pos_ref = Arc::clone(&player.pos);
+    let y = lua.create_function(move |_, _: ()| Ok(pos_ref.read().unwrap().y))?;
+    me.set("y", y)?;
 
-        let move_cmd = lua.create_function(|_, dist: f32| {
-            Ok(PlayerCommand::Move(MovementDirection::Forward, dist))
-        })?;
-        me.set("move", move_cmd)?;
+    let move_cmd = lua.create_function(|_, dist: f32| {
+        Ok(PlayerCommand::Move(MovementDirection::Forward, dist))
+    })?;
+    me.set("move", move_cmd)?;
 
-        let move_backward_cmd = lua.create_function(|_, dist: f32| {
-            Ok(PlayerCommand::Move(MovementDirection::Backward, dist))
-        })?;
-        me.set("move_backward", move_backward_cmd)?;
+    let move_backward_cmd = lua.create_function(|_, dist: f32| {
+        Ok(PlayerCommand::Move(MovementDirection::Backward, dist))
+    })?;
+    me.set("move_backward", move_backward_cmd)?;
 
-        let move_left_cmd = lua.create_function(|_, dist: f32| {
-            Ok(PlayerCommand::Move(MovementDirection::Left, dist))
-        })?;
-        me.set("move_left", move_left_cmd)?;
+    let move_left_cmd =
+        lua.create_function(|_, dist: f32| Ok(PlayerCommand::Move(MovementDirection::Left, dist)))?;
+    me.set("move_left", move_left_cmd)?;
 
-        let move_right_cmd = lua.create_function(|_, dist: f32| {
-            Ok(PlayerCommand::Move(MovementDirection::Right, dist))
-        })?;
-        me.set("move_right", move_right_cmd)?;
+    let move_right_cmd = lua
+        .create_function(|_, dist: f32| Ok(PlayerCommand::Move(MovementDirection::Right, dist)))?;
+    me.set("move_right", move_right_cmd)?;
 
-        let attack_cmd = lua.create_function(|_, _: ()| Ok(PlayerCommand::Attack))?;
-        me.set("attack", attack_cmd)?;
+    let attack_cmd = lua.create_function(|_, _: ()| Ok(PlayerCommand::Attack))?;
+    me.set("attack", attack_cmd)?;
 
-        let turn_cmd = lua.create_function(|_, angle: f32| Ok(PlayerCommand::Turn(angle)))?;
-        me.set("turn", &turn_cmd)?;
+    let turn_cmd = lua.create_function(|_, angle: f32| Ok(PlayerCommand::Turn(angle)))?;
+    me.set("turn", &turn_cmd)?;
 
-        let turn_head_cmd =
-            lua.create_function(|_, angle: f32| Ok(PlayerCommand::TurnHead(angle)))?;
-        me.set("turn_head", turn_head_cmd)?;
+    let turn_head_cmd = lua.create_function(|_, angle: f32| Ok(PlayerCommand::TurnHead(angle)))?;
+    me.set("turn_head", turn_head_cmd)?;
 
-        let turn_arms_cmd =
-            lua.create_function(|_, angle: f32| Ok(PlayerCommand::TurnArms(angle)))?;
-        me.set("turn_arms", turn_arms_cmd)?;
+    let turn_arms_cmd = lua.create_function(|_, angle: f32| Ok(PlayerCommand::TurnArms(angle)))?;
+    me.set("turn_arms", turn_arms_cmd)?;
 
-        lua.globals().set("me", me)?;
-        Ok(())
-    }
+    lua.globals().set("me", me)?;
+    Ok(())
 }
 
 #[derive(Clone)]
@@ -410,6 +403,15 @@ impl Game {
         }
     }
 
+    pub fn add_lua_player(&mut self, player: Player, lua_impl: LuaImpl, impls: &mut Vec<LuaImpl>) -> LuaResult<()> {
+        register_lua_library(&player, &lua_impl)?;
+        self.players.push(player);
+        // FIXME: this sucks... there should be a smarter way to keep lua state
+        // separate from Game
+        impls.push(lua_impl);
+        Ok(())
+    }
+
     pub fn living_players(&self) -> impl Iterator<Item = &Player> {
         self.players.iter().filter(|player| player.alive())
     }
@@ -422,11 +424,11 @@ impl Game {
     }
 }
 
-fn load_lua_player(player_dir: &str, meta: &PlayerMeta) -> LuaResult<LuaPlayer> {
+pub fn load_lua_player(player_dir: &str, meta: &PlayerMeta) -> LuaResult<LuaImpl> {
     // FIXME: use PathBuf or similar
     let file = format!("{player_dir}/{0}", meta.entrypoint);
     let code = std::fs::read_to_string(file)?;
-    LuaPlayer::new(&code)
+    LuaImpl::new(&code)
 }
 
 fn reduce_commands(commands: &mut Vec<PlayerCommand>) {
@@ -498,7 +500,7 @@ fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
             };
             let movement_heading = heading + dir_heading;
             let remaining_distance = f32::max(player.intent.distance - velocity, 0.0);
-            let p = player.pos.borrow();
+            let p = player.pos.read().unwrap();
             let dx = movement_heading.sin() * velocity;
             let dy = -movement_heading.cos() * velocity;
             let next_pos = Point {
@@ -547,9 +549,9 @@ fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
         .collect();
     game.players.iter_mut().for_each(|player| {
         if !next_positions.iter().any(|(id, next_move)| {
-            *id != player.id && players_collide(&player.pos.borrow(), &next_move.pos)
+            *id != player.id && players_collide(&player.pos.read().unwrap(), &next_move.pos)
         }) {
-            let mut pos = player.pos.borrow_mut();
+            let mut pos = player.pos.write().unwrap();
             pos.x = player.next_move.pos.x;
             pos.y = player.next_move.pos.y;
             player.intent.distance = player.next_move.distance;
@@ -617,12 +619,12 @@ fn can_spot(
 }
 
 fn dispatch_player_events(
-    player: &Player,
     player_events: Vec<PlayerEvent>,
+    lua_player: &LuaImpl,
 ) -> LuaResult<Vec<PlayerCommand>> {
     let mut commands = Vec::new();
     for e in player_events.iter() {
-        commands.append(&mut player.lua_player.on_event(&e)?);
+        commands.append(&mut lua_player.on_event(&e)?);
     }
     Ok(commands)
 }
@@ -636,7 +638,7 @@ fn determine_vision_events(game: &Game, event_manager: &mut EventManager) {
             (
                 player.id,
                 player.meta.name.clone(),
-                player.pos.borrow().clone(),
+                player.pos.read().unwrap().clone(),
             )
         })
         .collect();
@@ -644,7 +646,7 @@ fn determine_vision_events(game: &Game, event_manager: &mut EventManager) {
         for (id, name, pos) in player_positions.iter() {
             if *id != player.id {
                 if can_spot(
-                    &player.pos.borrow(),
+                    &player.pos.read().unwrap(),
                     player.effective_head_heading(),
                     &pos,
                     PLAYER_RADIUS as f32,
@@ -668,7 +670,7 @@ fn create_attacks(game: &mut Game, event_manager: &mut EventManager) {
             let attack = Attack {
                 id: game.attack_ids.next(),
                 owner: player.id,
-                pos: player.pos.borrow().clone(),
+                pos: player.pos.read().unwrap().clone(),
                 velocity: 2.5,
                 heading: player.arms_heading,
             };
@@ -687,7 +689,7 @@ fn attack_hits_player<'a>(
 ) -> Option<&'a Player> {
     players.find(|player| {
         player.id != attack.owner
-            && attack.pos.dist(&player.pos.borrow()) <= ATTACK_RADIUS + PLAYER_RADIUS as f32
+            && attack.pos.dist(&player.pos.read().unwrap()) <= ATTACK_RADIUS + PLAYER_RADIUS as f32
     })
 }
 
@@ -804,7 +806,11 @@ fn advance_game_state(game: &mut Game, game_events: &[GameEvent]) {
     }
 }
 
-pub fn step(game: &mut Game, event_manager: &mut EventManager) -> LuaResult<()> {
+pub fn step(
+    game: &mut Game,
+    event_manager: &mut EventManager,
+    lua_impls: &[LuaImpl],
+) -> LuaResult<()> {
     event_manager.init_tick(game);
     // FIXME: EnemySeen is unnecessary/useless as a game event -> it only
     // matters for players
@@ -817,9 +823,9 @@ pub fn step(game: &mut Game, event_manager: &mut EventManager) -> LuaResult<()> 
     let game_events: &[GameEvent] = event_manager.current_events();
     advance_game_state(game, game_events);
 
-    for player in game.players.iter_mut() {
+    for (index, player) in game.players.iter_mut().enumerate() {
         let player_events = game_events_to_player_events(player, game_events);
-        let mut commands = dispatch_player_events(player, player_events)?;
+        let mut commands = dispatch_player_events(player_events, &lua_impls[index])?;
         reduce_commands(&mut commands);
         for cmd in commands.iter() {
             match cmd {
@@ -834,13 +840,19 @@ pub fn step(game: &mut Game, event_manager: &mut EventManager) -> LuaResult<()> 
             }
         }
     }
+
+    game.tick += 1;
     Ok(())
 }
 
-pub fn run_round(game: &mut Game, event_manager: &mut EventManager) -> LuaResult<()> {
-    step(game, event_manager)?;
+pub fn run_round(
+    game: &mut Game,
+    event_manager: &mut EventManager,
+    lua_impls: &[LuaImpl],
+) -> LuaResult<()> {
+    step(game, event_manager, lua_impls)?;
     match game.round_state {
-        RoundState::Ongoing => run_round(game, event_manager),
+        RoundState::Ongoing => run_round(game, event_manager, lua_impls),
         RoundState::Won(id) => {
             println!("Player {id} has won!");
             Ok(())
@@ -852,12 +864,12 @@ pub fn run_round(game: &mut Game, event_manager: &mut EventManager) -> LuaResult
     }
 }
 
-pub fn run_game(game: &mut Game) -> LuaResult<()> {
+pub fn run_game(game: &mut Game, lua_impls: &[LuaImpl]) -> LuaResult<()> {
     let mut event_manager = EventManager::new();
     let max_rounds = 2;
     for round in 1..max_rounds {
         game.round = round;
-        run_round(game, &mut event_manager)?;
+        run_round(game, &mut event_manager, lua_impls)?;
     }
     Ok(())
 }
@@ -871,12 +883,12 @@ mod tests {
 
         #[test]
         fn lua_player_can_be_loaded_from_code() {
-            LuaPlayer::new("return {}").expect("lua player could not be created");
+            LuaImpl::new("return {}").expect("lua player could not be created");
         }
 
         #[test]
         fn call_on_tick() {
-            let player = LuaPlayer::new("return { on_tick = function(n) return { { tag = \"move\", distance = 13.12, direction = \"left\" } } end }")
+            let player = LuaImpl::new("return { on_tick = function(n) return { { tag = \"move\", distance = 13.12, direction = \"left\" } } end }")
                 .expect("lua player could not be created");
             let res: Vec<PlayerCommand> = player.on_event(&PlayerEvent::Tick(17)).unwrap();
             let cmd = res.first().expect("some command");
@@ -885,7 +897,7 @@ mod tests {
 
         #[test]
         fn call_on_tick_if_missing() {
-            let player = LuaPlayer::new("return {}").unwrap();
+            let player = LuaImpl::new("return {}").unwrap();
             let res: Vec<PlayerCommand> = player.on_event(&PlayerEvent::Tick(17)).unwrap();
             assert_eq!(res.len(), 0);
         }
