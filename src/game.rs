@@ -128,6 +128,7 @@ impl<'a> IntoLua<'a> for PlayerCommand {
     }
 }
 
+#[derive(Clone)]
 pub struct Color {
     pub red: u8,
     pub green: u8,
@@ -403,7 +404,12 @@ impl Game {
         }
     }
 
-    pub fn add_lua_player(&mut self, player: Player, lua_impl: LuaImpl, impls: &mut Vec<LuaImpl>) -> LuaResult<()> {
+    pub fn add_lua_player(
+        &mut self,
+        player: Player,
+        lua_impl: LuaImpl,
+        impls: &mut Vec<LuaImpl>,
+    ) -> LuaResult<()> {
         register_lua_library(&player, &lua_impl)?;
         self.players.push(player);
         // FIXME: this sucks... there should be a smarter way to keep lua state
