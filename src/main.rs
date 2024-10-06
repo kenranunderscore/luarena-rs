@@ -24,7 +24,7 @@ fn main() -> LuaResult<()> {
         .msaa_4x()
         .build();
 
-    std::thread::spawn(move || {
+    std::thread::spawn(move || -> LuaResult<()> {
         // FIXME: error handling and clean up this mess
         let mut lua_impls: Vec<LuaImpl> = Vec::new();
         {
@@ -50,10 +50,8 @@ fn main() -> LuaResult<()> {
         loop {
             std::thread::sleep(Duration::from_millis(5));
             let mut game = writable_game_ref.write().unwrap();
-            step(&mut game, &mut event_manager, &mut lua_impls).expect("step failed");
+            step(&mut game, &mut event_manager, &mut lua_impls)?;
         }
-        let res: LuaResult<()> = Ok(());
-        res
     });
 
     rl.set_target_fps(60);
