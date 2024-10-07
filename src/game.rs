@@ -522,30 +522,8 @@ fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
             }
         }
 
-        {
-            let delta = math_utils::clamp(
-                player.intent.turn_head_angle,
-                -MAX_HEAD_TURN_RATE,
-                MAX_HEAD_TURN_RATE,
-            );
-            let heading = clamp_turn_angle(player.head_heading + delta);
-            let remaining = clamp_turn_angle(player.head_heading + delta) - heading;
-            event_manager.record(GameEvent::PlayerHeadTurned(player.id, heading));
-            // FIXME: how to handle intent when using events for the state?
-            player.intent.turn_head_angle = remaining;
-        }
-
-        {
-            let delta = math_utils::clamp(
-                player.intent.turn_arms_angle,
-                -MAX_ARMS_TURN_RATE,
-                MAX_ARMS_TURN_RATE,
-            );
-            let heading = clamp_turn_angle(player.arms_heading + delta);
-            let remaining = clamp_turn_angle(player.arms_heading + delta) - heading;
-            event_manager.record(GameEvent::PlayerArmsTurned(player.id, heading));
-            player.intent.turn_arms_angle = remaining;
-        }
+        transition_heads(player, event_manager);
+        transition_arms(player, event_manager);
     }
 
     let next_positions: Vec<(u8, NextMove)> = game
@@ -563,6 +541,32 @@ fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
             player.intent.distance = player.next_move.distance;
         }
     });
+}
+
+fn transition_heads(player: &mut Player, event_manager: &mut EventManager) {
+    let delta = math_utils::clamp(
+        player.intent.turn_head_angle,
+        -MAX_HEAD_TURN_RATE,
+        MAX_HEAD_TURN_RATE,
+    );
+    let heading = clamp_turn_angle(player.head_heading + delta);
+    let remaining = clamp_turn_angle(player.head_heading + delta) - heading;
+    event_manager.record(GameEvent::PlayerHeadTurned(player.id, heading));
+    // FIXME: how to handle intent when using events for the state?
+    player.intent.turn_head_angle = remaining;
+}
+
+fn transition_arms(player: &mut Player, event_manager: &mut EventManager) {
+    let delta = math_utils::clamp(
+        player.intent.turn_head_angle,
+        -MAX_HEAD_TURN_RATE,
+        MAX_HEAD_TURN_RATE,
+    );
+    let heading = clamp_turn_angle(player.head_heading + delta);
+    let remaining = clamp_turn_angle(player.head_heading + delta) - heading;
+    event_manager.record(GameEvent::PlayerHeadTurned(player.id, heading));
+    // FIXME: how to handle intent when using events for the state?
+    player.intent.turn_head_angle = remaining;
 }
 
 fn players_collide(p: &Point, q: &Point) -> bool {
