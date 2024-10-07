@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 use mlua::prelude::*;
@@ -268,7 +269,6 @@ pub struct Player {
     pub head_heading: f32,
     pub arms_heading: f32,
     intent: PlayerIntent,
-    next_move: NextMove,
 }
 
 impl Player {
@@ -282,10 +282,6 @@ impl Player {
             heading: 0.0,
             head_heading: 0.0,
             arms_heading: 0.0,
-            next_move: NextMove {
-                pos: Point { x, y },
-                distance: 0.0,
-            },
             intent: Default::default(),
         };
         Ok(res)
@@ -468,59 +464,58 @@ fn clamp_turn_angle(angle: f32) -> f32 {
 }
 
 fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
-    for player in game.players.iter_mut() {
-        {
-            let delta = math_utils::clamp(player.intent.turn_angle, -MAX_TURN_RATE, MAX_TURN_RATE);
-            event_manager.record(GameEvent::PlayerTurned(player.id, delta));
-            let heading = math_utils::normalize_abs_angle(player.heading + delta);
-            let velocity = f32::min(player.intent.distance, MAX_VELOCITY);
-            let dir_heading = match player.intent.direction {
-                MovementDirection::Forward => 0.0,
-                MovementDirection::Backward => crate::PI as f32,
-                MovementDirection::Left => -HALF_PI,
-                MovementDirection::Right => HALF_PI,
-            };
-            let movement_heading = heading + dir_heading;
-            let remaining_distance = f32::max(player.intent.distance - velocity, 0.0);
-            let p = player.pos.read().unwrap();
-            let dx = movement_heading.sin() * velocity;
-            let dy = -movement_heading.cos() * velocity;
-            let next_pos = Point {
-                x: p.x + dx.round() as i32,
-                y: p.y + dy.round() as i32,
-            };
-            if valid_position(&next_pos) {
-                player.next_move.pos = next_pos;
-                player.next_move.distance = remaining_distance;
-            } else {
-                player.next_move.pos = p.clone();
-                player.next_move.distance = player.intent.distance;
+    // TODO: is a HashMap here appropriate? is there a smarter way?
+    let mut next_positions: HashMap<u8, NextMove> = HashMap::new();
+    for player in game.players.iter() {
+        let delta = math_utils::clamp(player.intent.turn_angle, -MAX_TURN_RATE, MAX_TURN_RATE);
+        event_manager.record(GameEvent::PlayerTurned(player.id, delta));
+        let heading = math_utils::normalize_abs_angle(player.heading + delta);
+        let velocity = f32::min(player.intent.distance, MAX_VELOCITY);
+        let dir_heading = match player.intent.direction {
+            MovementDirection::Forward => 0.0,
+            MovementDirection::Backward => crate::PI as f32,
+            MovementDirection::Left => -HALF_PI,
+            MovementDirection::Right => HALF_PI,
+        };
+        let movement_heading = heading + dir_heading;
+        let remaining_distance = f32::max(player.intent.distance - velocity, 0.0);
+        let p = player.pos.read().unwrap();
+        let dx = movement_heading.sin() * velocity;
+        let dy = -movement_heading.cos() * velocity;
+        let next_pos = Point {
+            x: p.x + dx.round() as i32,
+            y: p.y + dy.round() as i32,
+        };
+        let next_move = if valid_position(&next_pos) {
+            NextMove {
+                pos: next_pos,
+                distance: remaining_distance,
             }
-        }
+        } else {
+            NextMove {
+                pos: p.clone(),
+                distance: player.intent.distance,
+            }
+        };
+        next_positions.insert(player.id, next_move);
 
         transition_heads(player, event_manager);
         transition_arms(player, event_manager);
     }
 
-    let next_positions: Vec<(u8, NextMove)> = game
-        .players
-        .iter()
-        .map(|player| (player.id, player.next_move.clone()))
-        .collect();
-    game.players.iter_mut().for_each(|player| {
+    for player in game.players.iter() {
         if !next_positions.iter().any(|(id, next_move)| {
             *id != player.id && players_collide(&player.pos.read().unwrap(), &next_move.pos)
         }) {
             event_manager.record(GameEvent::PlayerPositionUpdated(
                 player.id,
-                player.next_move.pos.clone(),
+                next_positions.get(&player.id).unwrap().pos.clone(),
             ));
-            player.intent.distance = player.next_move.distance;
         }
-    });
+    }
 }
 
-fn transition_heads(player: &mut Player, event_manager: &mut EventManager) {
+fn transition_heads(player: &Player, event_manager: &mut EventManager) {
     let delta = math_utils::clamp(
         player.intent.turn_head_angle,
         -MAX_HEAD_TURN_RATE,
@@ -529,7 +524,7 @@ fn transition_heads(player: &mut Player, event_manager: &mut EventManager) {
     event_manager.record(GameEvent::PlayerHeadTurned(player.id, delta));
 }
 
-fn transition_arms(player: &mut Player, event_manager: &mut EventManager) {
+fn transition_arms(player: &Player, event_manager: &mut EventManager) {
     let delta = math_utils::clamp(
         player.intent.turn_arms_angle,
         -MAX_ARMS_TURN_RATE,
@@ -745,9 +740,12 @@ fn advance_game_state(game: &mut Game, game_events: &[GameEvent]) {
             GameEvent::RoundStarted(_) => {}
             GameEvent::RoundOver(_) => todo!("handle end of round"),
             GameEvent::PlayerPositionUpdated(id, next_pos) => {
-                let mut pos = game.player(*id).pos.write().unwrap();
+                let player = game.player(*id);
+                let mut pos = player.pos.write().unwrap();
+                let distance = pos.dist(next_pos);
                 pos.x = next_pos.x;
                 pos.y = next_pos.y;
+                player.intent.distance = f32::min(player.intent.distance - distance, 0.0)
             }
             GameEvent::PlayerTurned(id, delta) => {
                 let player = game.player(*id);
