@@ -254,12 +254,6 @@ impl Default for PlayerIntent {
     }
 }
 
-#[derive(Clone)]
-struct NextMove {
-    pos: Point,
-    distance: f32,
-}
-
 pub struct Player {
     pub id: u8,
     pub hp: f32,
@@ -465,7 +459,7 @@ fn clamp_turn_angle(angle: f32) -> f32 {
 
 fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
     // TODO: is a HashMap here appropriate? is there a smarter way?
-    let mut next_positions: HashMap<u8, NextMove> = HashMap::new();
+    let mut next_positions: HashMap<u8, Point> = HashMap::new();
     for player in game.players.iter() {
         let delta = math_utils::clamp(player.intent.turn_angle, -MAX_TURN_RATE, MAX_TURN_RATE);
         event_manager.record(GameEvent::PlayerTurned(player.id, delta));
@@ -478,38 +472,26 @@ fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
             MovementDirection::Right => HALF_PI,
         };
         let movement_heading = heading + dir_heading;
-        let remaining_distance = f32::max(player.intent.distance - velocity, 0.0);
         let p = player.pos.read().unwrap();
         let dx = movement_heading.sin() * velocity;
         let dy = -movement_heading.cos() * velocity;
-        let next_pos = Point {
-            x: p.x + dx.round() as i32,
-            y: p.y + dy.round() as i32,
+        let delta = Point {
+            x: dx.round() as i32,
+            y: dy.round() as i32,
         };
-        let next_move = if valid_position(&next_pos) {
-            NextMove {
-                pos: next_pos,
-                distance: remaining_distance,
-            }
-        } else {
-            NextMove {
-                pos: p.clone(),
-                distance: player.intent.distance,
-            }
-        };
-        next_positions.insert(player.id, next_move);
+        next_positions.insert(player.id, delta);
 
         transition_heads(player, event_manager);
         transition_arms(player, event_manager);
     }
 
     for player in game.players.iter() {
-        if !next_positions.iter().any(|(id, next_move)| {
-            *id != player.id && players_collide(&player.pos.read().unwrap(), &next_move.pos)
+        if !next_positions.iter().any(|(id, next_pos)| {
+            *id != player.id && players_collide(&player.pos.read().unwrap(), &next_pos)
         }) {
             event_manager.record(GameEvent::PlayerPositionUpdated(
                 player.id,
-                next_positions.get(&player.id).unwrap().pos.clone(),
+                next_positions.get(&player.id).unwrap().clone(),
             ));
         }
     }
@@ -538,7 +520,7 @@ fn players_collide(p: &Point, q: &Point) -> bool {
 }
 
 #[derive(Debug)]
-enum PlayerEvent {
+pub enum PlayerEvent {
     Tick(i32),
     RoundStarted(i32),
     EnemySeen(String, Point),
@@ -739,13 +721,13 @@ fn advance_game_state(game: &mut Game, game_events: &[GameEvent]) {
             GameEvent::Tick(_) => {}
             GameEvent::RoundStarted(_) => {}
             GameEvent::RoundOver(_) => todo!("handle end of round"),
-            GameEvent::PlayerPositionUpdated(id, next_pos) => {
+            GameEvent::PlayerPositionUpdated(id, delta) => {
                 let player = game.player(*id);
                 let mut pos = player.pos.write().unwrap();
-                let distance = pos.dist(next_pos);
-                pos.x = next_pos.x;
-                pos.y = next_pos.y;
-                player.intent.distance = f32::min(player.intent.distance - distance, 0.0)
+                let distance = pos.dist(&Point { x: 0, y: 0 }); // TODO: length of a Vec2
+                pos.x += delta.x;
+                pos.y += delta.y;
+                player.intent.distance = f32::max(player.intent.distance - distance, 0.0)
             }
             GameEvent::PlayerTurned(id, delta) => {
                 let player = game.player(*id);
