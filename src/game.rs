@@ -377,7 +377,7 @@ impl Ids {
     }
 }
 
-enum RoundState {
+pub enum RoundState {
     Ongoing,
     Won(u8),
     Draw,
@@ -558,15 +558,15 @@ fn transition_heads(player: &mut Player, event_manager: &mut EventManager) {
 
 fn transition_arms(player: &mut Player, event_manager: &mut EventManager) {
     let delta = math_utils::clamp(
-        player.intent.turn_head_angle,
-        -MAX_HEAD_TURN_RATE,
-        MAX_HEAD_TURN_RATE,
+        player.intent.turn_arms_angle,
+        -MAX_ARMS_TURN_RATE,
+        MAX_ARMS_TURN_RATE,
     );
-    let heading = clamp_turn_angle(player.head_heading + delta);
-    let remaining = clamp_turn_angle(player.head_heading + delta) - heading;
-    event_manager.record(GameEvent::PlayerHeadTurned(player.id, heading));
+    let heading = clamp_turn_angle(player.arms_heading + delta);
+    let remaining = clamp_turn_angle(player.arms_heading + delta) - heading;
+    event_manager.record(GameEvent::PlayerArmsTurned(player.id, heading));
     // FIXME: how to handle intent when using events for the state?
-    player.intent.turn_head_angle = remaining;
+    player.intent.turn_arms_angle = remaining;
 }
 
 fn players_collide(p: &Point, q: &Point) -> bool {
