@@ -2,8 +2,7 @@ use std::sync::{Arc, RwLock};
 
 use mlua::prelude::*;
 
-use crate::math_utils::HALF_PI;
-use crate::math_utils::{self, Point};
+use crate::math_utils::{self, Point, HALF_PI};
 use crate::settings::*;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -469,19 +468,11 @@ fn clamp_turn_angle(angle: f32) -> f32 {
 }
 
 fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
-    // FIXME: refactor: probably no need to mutate players for the next
-    // positions, or even keep them in there as state at all!
     for player in game.players.iter_mut() {
         {
             let delta = math_utils::clamp(player.intent.turn_angle, -MAX_TURN_RATE, MAX_TURN_RATE);
-            player.intent.turn_angle = if player.intent.turn_angle.abs() < MAX_TURN_RATE {
-                0.0
-            } else {
-                player.intent.turn_angle - delta
-            };
+            event_manager.record(GameEvent::PlayerTurned(player.id, delta));
             let heading = math_utils::normalize_abs_angle(player.heading + delta);
-            event_manager.record(GameEvent::PlayerTurned(player.id, heading));
-
             let velocity = f32::min(player.intent.distance, MAX_VELOCITY);
             let dir_heading = match player.intent.direction {
                 MovementDirection::Forward => 0.0,
@@ -535,11 +526,7 @@ fn transition_heads(player: &mut Player, event_manager: &mut EventManager) {
         -MAX_HEAD_TURN_RATE,
         MAX_HEAD_TURN_RATE,
     );
-    let heading = clamp_turn_angle(player.head_heading + delta);
-    let remaining = clamp_turn_angle(player.head_heading + delta) - heading;
-    event_manager.record(GameEvent::PlayerHeadTurned(player.id, heading));
-    // FIXME: how to handle intent when using events for the state?
-    player.intent.turn_head_angle = remaining;
+    event_manager.record(GameEvent::PlayerHeadTurned(player.id, delta));
 }
 
 fn transition_arms(player: &mut Player, event_manager: &mut EventManager) {
@@ -548,11 +535,7 @@ fn transition_arms(player: &mut Player, event_manager: &mut EventManager) {
         -MAX_ARMS_TURN_RATE,
         MAX_ARMS_TURN_RATE,
     );
-    let heading = clamp_turn_angle(player.arms_heading + delta);
-    let remaining = clamp_turn_angle(player.arms_heading + delta) - heading;
-    event_manager.record(GameEvent::PlayerArmsTurned(player.id, heading));
-    // FIXME: how to handle intent when using events for the state?
-    player.intent.turn_arms_angle = remaining;
+    event_manager.record(GameEvent::PlayerArmsTurned(player.id, delta));
 }
 
 fn players_collide(p: &Point, q: &Point) -> bool {
@@ -761,20 +744,41 @@ fn advance_game_state(game: &mut Game, game_events: &[GameEvent]) {
             GameEvent::Tick(_) => {}
             GameEvent::RoundStarted(_) => {}
             GameEvent::RoundOver(_) => todo!("handle end of round"),
-            // FIXME/IDEA: really store only the delta, as for event sourcing?
             GameEvent::PlayerPositionUpdated(id, next_pos) => {
                 let mut pos = game.player(*id).pos.write().unwrap();
                 pos.x = next_pos.x;
                 pos.y = next_pos.y;
             }
-            GameEvent::PlayerTurned(id, heading) => {
-                game.player(*id).heading = *heading;
+            GameEvent::PlayerTurned(id, delta) => {
+                let player = game.player(*id);
+                player.heading = math_utils::normalize_abs_angle(player.heading + *delta);
+                player.intent.turn_angle = if player.intent.turn_angle.abs() < MAX_TURN_RATE {
+                    0.0
+                } else {
+                    player.intent.turn_angle - *delta
+                };
             }
-            GameEvent::PlayerHeadTurned(id, heading) => {
-                game.player(*id).head_heading = *heading;
+            GameEvent::PlayerHeadTurned(id, delta) => {
+                let player = game.player(*id);
+                let heading = clamp_turn_angle(player.head_heading + *delta);
+                player.head_heading = heading;
+                player.intent.turn_head_angle =
+                    if player.intent.turn_head_angle.abs() < MAX_HEAD_TURN_RATE {
+                        0.0
+                    } else {
+                        player.intent.turn_head_angle - *delta
+                    };
             }
-            GameEvent::PlayerArmsTurned(id, heading) => {
-                game.player(*id).arms_heading = *heading;
+            GameEvent::PlayerArmsTurned(id, delta) => {
+                let player = game.player(*id);
+                let heading = clamp_turn_angle(player.arms_heading + *delta);
+                player.arms_heading = heading;
+                player.intent.turn_arms_angle =
+                    if player.intent.turn_arms_angle.abs() < MAX_ARMS_TURN_RATE {
+                        0.0
+                    } else {
+                        player.intent.turn_arms_angle - *delta
+                    };
             }
             GameEvent::EnemySeen(_, _, _) => {}
             GameEvent::Hit(attack_id, _, victim_id, _) => {
