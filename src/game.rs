@@ -460,23 +460,8 @@ pub enum GameEvent {
     AttackAdvanced(usize, Point),
     AttackMissed(usize),
     AttackCreated(u8, Attack),
-}
-
-impl GameEvent {
-    fn index(&self) -> i32 {
-        match self {
-            GameEvent::RoundStarted(_) => 0,
-            GameEvent::RoundOver(_) => 1,
-            GameEvent::Tick(_) => 2,
-            GameEvent::Hit(_, _, _, _) => 3,
-            GameEvent::AttackMissed(_) => 4,
-            GameEvent::AttackAdvanced(_, _) => 5,
-            GameEvent::AttackCreated(_, _) => 6,
-            GameEvent::PlayerHeadTurned(_, _) => 7,
-            GameEvent::PlayerArmsTurned(_, _) => 8,
-            GameEvent::EnemySeen(_, _, _) => 9,
-        }
-    }
+    PlayerPositionUpdated(u8, Point),
+    PlayerTurned(u8, f32),
 }
 
 fn clamp_turn_angle(angle: f32) -> f32 {
@@ -495,7 +480,7 @@ fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
                 player.intent.turn_angle - delta
             };
             let heading = math_utils::normalize_abs_angle(player.heading + delta);
-            player.heading = heading;
+            event_manager.record(GameEvent::PlayerTurned(player.id, heading));
 
             let velocity = f32::min(player.intent.distance, MAX_VELOCITY);
             let dir_heading = match player.intent.direction {
@@ -535,9 +520,10 @@ fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
         if !next_positions.iter().any(|(id, next_move)| {
             *id != player.id && players_collide(&player.pos.read().unwrap(), &next_move.pos)
         }) {
-            let mut pos = player.pos.write().unwrap();
-            pos.x = player.next_move.pos.x;
-            pos.y = player.next_move.pos.y;
+            event_manager.record(GameEvent::PlayerPositionUpdated(
+                player.id,
+                player.next_move.pos.clone(),
+            ));
             player.intent.distance = player.next_move.distance;
         }
     });
@@ -598,6 +584,8 @@ fn game_events_to_player_events(player: &Player, game_events: &[GameEvent]) -> V
             }
             acc
         }
+        GameEvent::PlayerTurned(_, _) => acc,
+        GameEvent::PlayerPositionUpdated(_, _) => acc,
         GameEvent::PlayerHeadTurned(_, _) => acc,
         GameEvent::PlayerArmsTurned(_, _) => acc,
         GameEvent::Hit(_, _, _, _) => acc,
@@ -719,10 +707,6 @@ impl EventManager {
         self.current_events = tick_events(game);
     }
 
-    pub fn end_tick(&mut self) {
-        self.current_events.sort_by_key(|event| event.index());
-    }
-
     pub fn record(&mut self, event: GameEvent) {
         self.current_events.push(event);
     }
@@ -778,6 +762,14 @@ fn advance_game_state(game: &mut Game, game_events: &[GameEvent]) {
             GameEvent::RoundStarted(_) => {}
             GameEvent::RoundOver(_) => todo!("handle end of round"),
             // FIXME/IDEA: really store only the delta, as for event sourcing?
+            GameEvent::PlayerPositionUpdated(id, next_pos) => {
+                let mut pos = game.player(*id).pos.write().unwrap();
+                pos.x = next_pos.x;
+                pos.y = next_pos.y;
+            }
+            GameEvent::PlayerTurned(id, heading) => {
+                game.player(*id).heading = *heading;
+            }
             GameEvent::PlayerHeadTurned(id, heading) => {
                 game.player(*id).head_heading = *heading;
             }
@@ -828,7 +820,6 @@ pub fn step(
     transition_players(game, event_manager);
     create_attacks(game, event_manager);
     transition_attacks(game, event_manager);
-    event_manager.end_tick();
 
     let game_events: &[GameEvent] = event_manager.current_events();
     advance_game_state(game, game_events);
