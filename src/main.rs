@@ -1,7 +1,4 @@
-use std::{
-    sync::{mpsc, Arc},
-    time::Duration,
-};
+use std::{sync::mpsc, time::Duration};
 
 use mlua::prelude::*;
 use raylib::prelude::*;
