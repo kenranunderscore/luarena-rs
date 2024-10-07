@@ -27,12 +27,12 @@ fn main() -> LuaResult<()> {
         // FIXME: IDs and random positions -> do this in add_(lua)_player or
         // something like that
         let dir1 = "players/kai";
-        let player1 = Player::new(dir1, 1, 70, 450)?;
+        let player1 = Player::new(dir1, 1, 70.0, 450.0)?;
         let meta1 = LuaImpl::read_meta(dir1)?;
         let lua_impl1 = load_lua_player(dir1, &meta1)?;
 
         let dir2 = "players/lloyd";
-        let player2 = Player::new(dir2, 2, 700, 440)?;
+        let player2 = Player::new(dir2, 2, 700.0, 440.0)?;
         let meta2 = LuaImpl::read_meta(dir2)?;
         let lua_impl2 = load_lua_player(dir2, &meta2)?;
 
@@ -49,8 +49,8 @@ fn main() -> LuaResult<()> {
                 let p = player.pos.read().unwrap();
                 game_data.players.push(PlayerData {
                     color: player.meta.color.clone(),
-                    x: p.x,
-                    y: p.y,
+                    x: p.x.round() as i32,
+                    y: p.y.round() as i32,
                     heading: player.heading,
                     head_heading: player.effective_head_heading(),
                     arms_heading: player.effective_arms_heading(),

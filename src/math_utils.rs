@@ -5,13 +5,15 @@ pub const TWO_PI: f32 = PI * 2.0;
 
 #[derive(Clone, Debug)]
 pub struct Point {
-    pub x: i32,
-    pub y: i32,
+    pub x: f32,
+    pub y: f32,
 }
 
 impl Point {
-    pub fn dist_sqr(&self, p: &Point) -> i32 {
-        (self.x - p.x).pow(2) + (self.y - p.y).pow(2)
+    pub fn dist_sqr(&self, p: &Point) -> f32 {
+        let dx = self.x - p.x;
+        let dy = self.y - p.y;
+        dx * dx + dy * dy
     }
 
     pub fn dist(&self, p: &Point) -> f32 {
@@ -20,10 +22,13 @@ impl Point {
     }
 }
 
-pub fn line_endpoint(x: f32, y: f32, len: f32, angle: f32) -> (f32, f32) {
+pub fn line_endpoint(x: f32, y: f32, len: f32, angle: f32) -> Point {
     let dx = angle.sin() * len;
     let dy = -angle.cos() * len;
-    (x + dx, y + dy)
+    Point {
+        x: x + dx,
+        y: y + dy,
+    }
 }
 
 pub fn clamp(x: f32, lower: f32, upper: f32) -> f32 {

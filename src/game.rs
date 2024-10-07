@@ -266,7 +266,7 @@ pub struct Player {
 }
 
 impl Player {
-    pub fn new(player_dir: &str, id: u8, x: i32, y: i32) -> LuaResult<Player> {
+    pub fn new(player_dir: &str, id: u8, x: f32, y: f32) -> LuaResult<Player> {
         let meta = LuaImpl::read_meta(player_dir)?;
         let res = Self {
             id,
@@ -433,9 +433,9 @@ fn reduce_commands(commands: &mut Vec<PlayerCommand>) {
 
 fn valid_position(p: &Point) -> bool {
     p.x >= PLAYER_RADIUS
-        && p.x <= WIDTH - PLAYER_RADIUS
+        && p.x <= WIDTH as f32 - PLAYER_RADIUS
         && p.y >= PLAYER_RADIUS
-        && p.y <= HEIGHT - PLAYER_RADIUS
+        && p.y <= HEIGHT as f32 - PLAYER_RADIUS
 }
 
 pub enum GameEvent {
@@ -475,10 +475,7 @@ fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
         let p = player.pos.read().unwrap();
         let dx = movement_heading.sin() * velocity;
         let dy = -movement_heading.cos() * velocity;
-        let delta = Point {
-            x: dx.round() as i32,
-            y: dy.round() as i32,
-        };
+        let delta = Point { x: dx, y: dy };
         next_positions.insert(player.id, delta);
 
         transition_heads(player, event_manager);
@@ -637,8 +634,8 @@ fn create_attacks(game: &mut Game, event_manager: &mut EventManager) {
     }
 }
 
-fn inside_arena(x: i32, y: i32) -> bool {
-    x >= 0 && x <= WIDTH && y >= 0 && y <= HEIGHT
+fn inside_arena(p: &Point) -> bool {
+    p.x >= 0.0 && p.x <= WIDTH as f32 && p.y >= 0.0 && p.y <= HEIGHT as f32
 }
 
 fn attack_hits_player<'a>(
@@ -686,28 +683,18 @@ fn tick_events(game: &Game) -> Vec<GameEvent> {
 
 fn transition_attacks(game: &Game, event_manager: &mut EventManager) {
     for attack in game.attacks.iter() {
-        let (x, y) = math_utils::line_endpoint(
+        let new_pos = math_utils::line_endpoint(
             attack.pos.x as f32,
             attack.pos.y as f32,
             attack.velocity,
             attack.heading,
         );
-        let new_x = x.round() as i32;
-        let new_y = y.round() as i32;
-        if inside_arena(new_x, new_y) {
+        if inside_arena(&new_pos) {
             if let Some(player) = attack_hits_player(&attack, game.living_players()) {
-                println!("player hit! it was {}", player.meta.name);
-                event_manager.record(GameEvent::Hit(
-                    attack.id,
-                    attack.owner,
-                    player.id,
-                    attack.pos.clone(),
-                ));
+                // FIXME: new_pos or old position here?
+                event_manager.record(GameEvent::Hit(attack.id, attack.owner, player.id, new_pos));
             } else {
-                event_manager.record(GameEvent::AttackAdvanced(
-                    attack.id,
-                    Point { x: new_x, y: new_y },
-                ));
+                event_manager.record(GameEvent::AttackAdvanced(attack.id, new_pos));
             }
         } else {
             event_manager.record(GameEvent::AttackMissed(attack.id));
@@ -724,7 +711,7 @@ fn advance_game_state(game: &mut Game, game_events: &[GameEvent]) {
             GameEvent::PlayerPositionUpdated(id, delta) => {
                 let player = game.player(*id);
                 let mut pos = player.pos.write().unwrap();
-                let distance = pos.dist(&Point { x: 0, y: 0 }); // TODO: length of a Vec2
+                let distance = pos.dist(&Point { x: 0.0, y: 0.0 }); // TODO: length of a Vec2
                 pos.x += delta.x;
                 pos.y += delta.y;
                 player.intent.distance = f32::max(player.intent.distance - distance, 0.0)
@@ -896,9 +883,9 @@ mod tests {
         #[test]
         fn first_quadrant_too_far_left() {
             let visible = can_spot(
-                &Point { x: 400, y: 400 },
+                &Point { x: 400.0, y: 400.0 },
                 -PI / 4.0,
-                &Point { x: 500, y: 300 },
+                &Point { x: 500.0, y: 300.0 },
                 25.0,
                 1.4,
             );
@@ -908,9 +895,9 @@ mod tests {
         #[test]
         fn first_quadrant_too_far_right() {
             let visible = can_spot(
-                &Point { x: 400, y: 400 },
+                &Point { x: 400.0, y: 400.0 },
                 3.0 * PI / 4.0,
-                &Point { x: 500, y: 300 },
+                &Point { x: 500.0, y: 300.0 },
                 25.0,
                 1.4,
             );
@@ -920,9 +907,9 @@ mod tests {
         #[test]
         fn first_quadrant_head_on() {
             let visible = can_spot(
-                &Point { x: 400, y: 400 },
+                &Point { x: 400.0, y: 400.0 },
                 PI / 4.0,
-                &Point { x: 500, y: 300 },
+                &Point { x: 500.0, y: 300.0 },
                 25.0,
                 1.4,
             );
@@ -932,9 +919,9 @@ mod tests {
         #[test]
         fn first_quadrant_target_larger_than_vision_angle() {
             let visible = can_spot(
-                &Point { x: 400, y: 400 },
+                &Point { x: 400.0, y: 400.0 },
                 0.7,
-                &Point { x: 500, y: 300 },
+                &Point { x: 500.0, y: 300.0 },
                 50.0,
                 0.1,
             );
