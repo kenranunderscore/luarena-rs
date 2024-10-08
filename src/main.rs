@@ -9,7 +9,6 @@ mod render;
 mod settings;
 
 use game::*;
-use render::{GameData, PlayerData};
 use settings::*;
 
 fn main() -> LuaResult<()> {
@@ -22,8 +21,6 @@ fn main() -> LuaResult<()> {
         .build();
 
     std::thread::spawn(move || -> LuaResult<()> {
-        let mut game = Game::new();
-        let mut lua_impls: Vec<LuaImpl> = Vec::new();
         // FIXME: IDs and random positions -> do this in add_(lua)_player or
         // something like that
         let dir1 = "players/kai";
@@ -36,31 +33,13 @@ fn main() -> LuaResult<()> {
         let meta2 = LuaImpl::read_meta(dir2)?;
         let lua_impl2 = load_lua_player(dir2, &meta2)?;
 
+        let mut game = Game::new();
+        let mut lua_impls: Vec<LuaImpl> = Vec::new();
         game.add_lua_player(player1, lua_impl1, &mut lua_impls)?;
         game.add_lua_player(player2, lua_impl2, &mut lua_impls)?;
 
-        let mut event_manager = EventManager::new();
-        loop {
-            std::thread::sleep(Duration::from_millis(5));
-            step(&mut game, &mut event_manager, &mut lua_impls)?;
-
-            let mut game_data = GameData::new();
-            for player in game.living_players() {
-                let p = player.pos.read().unwrap();
-                game_data.players.push(PlayerData {
-                    color: player.meta.color.clone(),
-                    x: p.x.round() as i32,
-                    y: p.y.round() as i32,
-                    heading: player.heading,
-                    head_heading: player.effective_head_heading(),
-                    arms_heading: player.effective_arms_heading(),
-                });
-            }
-            for attack in game.attacks.iter() {
-                game_data.attacks.push(attack.pos.clone());
-            }
-            game_writer.send(game_data).unwrap();
-        }
+        let delay = Duration::from_millis(5);
+        run_game(&mut game, &lua_impls, &delay, &game_writer)
     });
 
     rl.set_target_fps(60);

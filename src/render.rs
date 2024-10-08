@@ -1,30 +1,8 @@
 use raylib::prelude::*;
 
+use crate::game::{GameData, PlayerData};
 use crate::math_utils::Point;
 use crate::{math_utils, settings::*};
-
-pub struct PlayerData {
-    pub color: crate::game::Color,
-    pub x: i32,
-    pub y: i32,
-    pub heading: f32,
-    pub head_heading: f32,
-    pub arms_heading: f32,
-}
-
-pub struct GameData {
-    pub players: Vec<PlayerData>,
-    pub attacks: Vec<Point>,
-}
-
-impl GameData {
-    pub fn new() -> Self {
-        Self {
-            players: Vec::new(),
-            attacks: Vec::new(),
-        }
-    }
-}
 
 const VISION_COLOR: Color = Color {
     r: 150,

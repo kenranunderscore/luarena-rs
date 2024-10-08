@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::{mpsc, Arc, RwLock};
 
 use mlua::prelude::*;
 
@@ -472,7 +472,6 @@ fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
             MovementDirection::Right => HALF_PI,
         };
         let movement_heading = heading + dir_heading;
-        let p = player.pos.read().unwrap();
         let dx = movement_heading.sin() * velocity;
         let dy = -movement_heading.cos() * velocity;
         let delta = Point { x: dx, y: dy };
@@ -779,10 +778,34 @@ fn advance_game_state(game: &mut Game, game_events: &[GameEvent]) {
     }
 }
 
+pub struct PlayerData {
+    pub color: crate::game::Color,
+    pub x: i32,
+    pub y: i32,
+    pub heading: f32,
+    pub head_heading: f32,
+    pub arms_heading: f32,
+}
+
+pub struct GameData {
+    pub players: Vec<PlayerData>,
+    pub attacks: Vec<Point>,
+}
+
+impl GameData {
+    pub fn new() -> Self {
+        Self {
+            players: Vec::new(),
+            attacks: Vec::new(),
+        }
+    }
+}
+
 pub fn step(
     game: &mut Game,
     event_manager: &mut EventManager,
     lua_impls: &[LuaImpl],
+    game_writer: &mpsc::Sender<GameData>,
 ) -> LuaResult<()> {
     event_manager.init_tick(game);
     // FIXME: EnemySeen is unnecessary/useless as a game event -> it only
@@ -813,6 +836,23 @@ pub fn step(
         }
     }
 
+    let mut game_data = GameData::new();
+    for player in game.living_players() {
+        let p = player.pos.read().unwrap();
+        game_data.players.push(PlayerData {
+            color: player.meta.color.clone(),
+            x: p.x.round() as i32,
+            y: p.y.round() as i32,
+            heading: player.heading,
+            head_heading: player.effective_head_heading(),
+            arms_heading: player.effective_arms_heading(),
+        });
+    }
+    for attack in game.attacks.iter() {
+        game_data.attacks.push(attack.pos.clone());
+    }
+    game_writer.send(game_data).unwrap();
+
     game.tick += 1;
     Ok(())
 }
@@ -821,27 +861,38 @@ pub fn run_round(
     game: &mut Game,
     event_manager: &mut EventManager,
     lua_impls: &[LuaImpl],
+    // FIXME: find out whether it's better to pass such things via & or without
+    delay: &std::time::Duration,
+    game_writer: &mpsc::Sender<GameData>,
 ) -> LuaResult<()> {
-    step(game, event_manager, lua_impls)?;
-    match game.round_state {
-        RoundState::Ongoing => run_round(game, event_manager, lua_impls),
-        RoundState::Won(id) => {
-            println!("Player {id} has won!");
-            Ok(())
-        }
-        RoundState::Draw => {
-            println!("--- DRAW ---");
-            Ok(())
+    loop {
+        std::thread::sleep(*delay);
+        step(game, event_manager, lua_impls, game_writer)?;
+        match game.round_state {
+            RoundState::Ongoing => {}
+            RoundState::Won(id) => {
+                println!("Player {id} has won!");
+                break Ok(());
+            }
+            RoundState::Draw => {
+                println!("--- DRAW ---");
+                break Ok(());
+            }
         }
     }
 }
 
-pub fn run_game(game: &mut Game, lua_impls: &[LuaImpl]) -> LuaResult<()> {
+pub fn run_game(
+    game: &mut Game,
+    lua_impls: &[LuaImpl],
+    delay: &std::time::Duration,
+    game_writer: &mpsc::Sender<GameData>,
+) -> LuaResult<()> {
     let mut event_manager = EventManager::new();
     let max_rounds = 2;
     for round in 1..max_rounds {
         game.round = round;
-        run_round(game, &mut event_manager, lua_impls)?;
+        run_round(game, &mut event_manager, lua_impls, delay, game_writer)?;
     }
     Ok(())
 }
