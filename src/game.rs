@@ -7,7 +7,7 @@ use crate::math_utils::{self, Point, HALF_PI};
 use crate::settings::*;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-enum MovementDirection {
+pub enum MovementDirection {
     Forward,
     Backward,
     Left,
@@ -46,7 +46,7 @@ impl<'a> IntoLua<'a> for MovementDirection {
 }
 
 #[derive(PartialEq, Debug)]
-enum PlayerCommand {
+pub enum PlayerCommand {
     Move(MovementDirection, f32),
     Attack,
     Turn(f32),
@@ -156,7 +156,7 @@ impl<'a> FromLua<'a> for Color {
 pub struct PlayerMeta {
     pub name: String,
     pub color: Color,
-    pub version: String,
+    pub _version: String,
     entrypoint: String,
 }
 
@@ -183,7 +183,7 @@ impl LuaImpl {
         Ok(PlayerMeta {
             name,
             color,
-            version,
+            _version: version,
             entrypoint,
         })
     }
