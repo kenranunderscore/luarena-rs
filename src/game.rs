@@ -708,7 +708,12 @@ fn advance_game_state(game: &mut Game, game_events: &[GameEvent]) {
         match event {
             GameEvent::Tick(_) => {}
             GameEvent::RoundStarted(_) => {}
-            GameEvent::RoundOver(_) => todo!("handle end of round"),
+            GameEvent::RoundOver(winner) => {
+                game.round_state = match winner {
+                    Some(winner) => RoundState::Won(*winner),
+                    None => RoundState::Draw,
+                }
+            }
             GameEvent::PlayerPositionUpdated(id, delta) => {
                 let distance;
                 {
@@ -816,12 +821,24 @@ impl GameData {
     }
 }
 
+fn check_for_round_end(game: &Game, event_manager: &mut EventManager) {
+    let nplayers = game.living_players().count();
+    match nplayers {
+        0 => event_manager.record(GameEvent::RoundOver(None)),
+        1 => event_manager.record(GameEvent::RoundOver(Some(
+            game.living_players().nth(0).unwrap().id,
+        ))),
+        _ => {}
+    }
+}
+
 pub fn step(
     game: &mut Game,
     event_manager: &mut EventManager,
     game_writer: &mpsc::Sender<GameData>,
 ) -> LuaResult<()> {
     event_manager.init_tick(game);
+    check_for_round_end(game, event_manager);
     // FIXME: EnemySeen is unnecessary/useless as a game event -> it only
     // matters for players
     determine_vision_events(game, event_manager);
