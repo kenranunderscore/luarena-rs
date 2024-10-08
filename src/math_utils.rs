@@ -20,6 +20,17 @@ impl Point {
         let d = self.dist_sqr(p) as f32;
         d.sqrt()
     }
+
+    pub fn add(&self, p: &Point) -> Self {
+        Self {
+            x: self.x + p.x,
+            y: self.y + p.y,
+        }
+    }
+
+    pub fn zero() -> Self {
+        Self { x: 0.0, y: 0.0 }
+    }
 }
 
 pub fn line_endpoint(x: f32, y: f32, len: f32, angle: f32) -> Point {

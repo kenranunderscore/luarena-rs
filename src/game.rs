@@ -438,6 +438,17 @@ fn valid_position(p: &Point) -> bool {
         && p.y <= HEIGHT as f32 - PLAYER_RADIUS
 }
 
+#[derive(Clone)]
+pub struct Delta {
+    value: Point,
+}
+
+impl Delta {
+    pub fn new(value: Point) -> Self {
+        Self { value }
+    }
+}
+
 pub enum GameEvent {
     Tick(i32),
     RoundStarted(i32),
@@ -449,7 +460,7 @@ pub enum GameEvent {
     AttackAdvanced(usize, Point),
     AttackMissed(usize),
     AttackCreated(u8, Attack),
-    PlayerPositionUpdated(u8, Point),
+    PlayerPositionUpdated(u8, Delta),
     PlayerTurned(u8, f32),
 }
 
@@ -458,8 +469,8 @@ fn clamp_turn_angle(angle: f32) -> f32 {
 }
 
 fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
-    // TODO: is a HashMap here appropriate? is there a smarter way?
-    let mut next_positions: HashMap<u8, Point> = HashMap::new();
+    // TODO: is a HashMap appropriate here? is there a smarter way?
+    let mut next_positions: HashMap<u8, (Delta, Point)> = HashMap::new();
     for (index, player) in game.players.iter().enumerate() {
         let lua_impl = &game.lua_impls[index];
         let delta = math_utils::clamp(lua_impl.intent.turn_angle, -MAX_TURN_RATE, MAX_TURN_RATE);
@@ -475,22 +486,36 @@ fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
         let movement_heading = heading + dir_heading;
         let dx = movement_heading.sin() * velocity;
         let dy = -movement_heading.cos() * velocity;
-        let delta = Point { x: dx, y: dy };
-        next_positions.insert(player.id, delta);
+        let delta = Delta::new(Point { x: dx, y: dy });
+        let pos = player.pos.read().unwrap();
+        let next_pos = pos.add(&delta.value);
+        if valid_position(&next_pos) {
+            next_positions.insert(player.id, (delta, next_pos));
+        } else {
+            next_positions.insert(player.id, (Delta::new(Point::zero()), pos.clone()));
+        };
 
         transition_heads(player, lua_impl, event_manager);
         transition_arms(player, lua_impl, event_manager);
     }
 
     for player in game.players.iter() {
-        if !next_positions.iter().any(|(id, next_pos)| {
-            *id != player.id && players_collide(&player.pos.read().unwrap(), &next_pos)
-        }) {
-            event_manager.record(GameEvent::PlayerPositionUpdated(
-                player.id,
-                next_positions.get(&player.id).unwrap().clone(),
-            ));
+        let (delta, next) = next_positions.get(&player.id).unwrap();
+        let mut collides = false;
+        for (other_id, (_, other_next)) in next_positions.iter() {
+            if player.id != *other_id {
+                if players_collide(&next, &other_next) {
+                    // TODO: collision event
+                    collides = true;
+                }
+            }
         }
+        let event = if !collides {
+            GameEvent::PlayerPositionUpdated(player.id, delta.clone())
+        } else {
+            GameEvent::PlayerPositionUpdated(player.id, Delta::new(Point::zero()))
+        };
+        event_manager.record(event);
     }
 }
 
@@ -719,9 +744,9 @@ fn advance_game_state(game: &mut Game, game_events: &[GameEvent]) {
                 {
                     let player = game.player(*id);
                     let mut pos = player.pos.write().unwrap();
-                    distance = pos.dist(&Point { x: 0.0, y: 0.0 }); // TODO: length of a Vec2
-                    pos.x += delta.x;
-                    pos.y += delta.y;
+                    distance = pos.dist(&Point::zero()); // TODO: length of a Vec2
+                    pos.x += delta.value.x;
+                    pos.y += delta.value.y;
                 }
                 let lua_impl = game.lua_impl(*id);
                 lua_impl.intent.distance = f32::max(lua_impl.intent.distance - distance, 0.0)
