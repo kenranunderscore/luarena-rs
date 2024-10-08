@@ -163,6 +163,7 @@ pub struct PlayerMeta {
 pub struct LuaImpl {
     lua: Lua,
     key: LuaRegistryKey,
+    intent: PlayerIntent,
 }
 
 impl LuaImpl {
@@ -198,6 +199,7 @@ impl LuaImpl {
         Ok(Self {
             lua,
             key: table_key,
+            intent: Default::default(),
         })
     }
 
@@ -262,7 +264,6 @@ pub struct Player {
     pub heading: f32,
     pub head_heading: f32,
     pub arms_heading: f32,
-    intent: PlayerIntent,
 }
 
 impl Player {
@@ -276,7 +277,6 @@ impl Player {
             heading: 0.0,
             head_heading: 0.0,
             arms_heading: 0.0,
-            intent: Default::default(),
         };
         Ok(res)
     }
@@ -376,6 +376,7 @@ pub struct Game {
     pub tick: i32,
     pub round: i32,
     pub players: Vec<Player>,
+    pub lua_impls: Vec<LuaImpl>,
     pub attacks: Vec<Attack>,
     pub round_state: RoundState,
     attack_ids: Ids,
@@ -386,24 +387,18 @@ impl Game {
         Self {
             tick: 0,
             round: 1,
-            players: Vec::new(),
+            players: vec![],
+            lua_impls: vec![],
             attacks: vec![],
             attack_ids: Ids::new(),
             round_state: RoundState::Ongoing,
         }
     }
 
-    pub fn add_lua_player(
-        &mut self,
-        player: Player,
-        lua_impl: LuaImpl,
-        impls: &mut Vec<LuaImpl>,
-    ) -> LuaResult<()> {
+    pub fn add_lua_player(&mut self, player: Player, lua_impl: LuaImpl) -> LuaResult<()> {
         register_lua_library(&player, &lua_impl)?;
         self.players.push(player);
-        // FIXME: this sucks... there should be a smarter way to keep lua state
-        // separate from Game
-        impls.push(lua_impl);
+        self.lua_impls.push(lua_impl);
         Ok(())
     }
 
@@ -416,6 +411,11 @@ impl Game {
             .iter_mut()
             .find(|player| player.id == id)
             .expect("player {id} not found")
+    }
+
+    pub fn lua_impl(&mut self, id: u8) -> &mut LuaImpl {
+        // FIXME: player id should be index
+        &mut self.lua_impls[id as usize]
     }
 }
 
@@ -460,12 +460,13 @@ fn clamp_turn_angle(angle: f32) -> f32 {
 fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
     // TODO: is a HashMap here appropriate? is there a smarter way?
     let mut next_positions: HashMap<u8, Point> = HashMap::new();
-    for player in game.players.iter() {
-        let delta = math_utils::clamp(player.intent.turn_angle, -MAX_TURN_RATE, MAX_TURN_RATE);
+    for (index, player) in game.players.iter().enumerate() {
+        let lua_impl = &game.lua_impls[index];
+        let delta = math_utils::clamp(lua_impl.intent.turn_angle, -MAX_TURN_RATE, MAX_TURN_RATE);
         event_manager.record(GameEvent::PlayerTurned(player.id, delta));
         let heading = math_utils::normalize_abs_angle(player.heading + delta);
-        let velocity = f32::min(player.intent.distance, MAX_VELOCITY);
-        let dir_heading = match player.intent.direction {
+        let velocity = f32::min(lua_impl.intent.distance, MAX_VELOCITY);
+        let dir_heading = match lua_impl.intent.direction {
             MovementDirection::Forward => 0.0,
             MovementDirection::Backward => crate::PI as f32,
             MovementDirection::Left => -HALF_PI,
@@ -477,8 +478,8 @@ fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
         let delta = Point { x: dx, y: dy };
         next_positions.insert(player.id, delta);
 
-        transition_heads(player, event_manager);
-        transition_arms(player, event_manager);
+        transition_heads(player, lua_impl, event_manager);
+        transition_arms(player, lua_impl, event_manager);
     }
 
     for player in game.players.iter() {
@@ -493,18 +494,18 @@ fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
     }
 }
 
-fn transition_heads(player: &Player, event_manager: &mut EventManager) {
+fn transition_heads(player: &Player, lua_impl: &LuaImpl, event_manager: &mut EventManager) {
     let delta = math_utils::clamp(
-        player.intent.turn_head_angle,
+        lua_impl.intent.turn_head_angle,
         -MAX_HEAD_TURN_RATE,
         MAX_HEAD_TURN_RATE,
     );
     event_manager.record(GameEvent::PlayerHeadTurned(player.id, delta));
 }
 
-fn transition_arms(player: &Player, event_manager: &mut EventManager) {
+fn transition_arms(player: &Player, lua_impl: &LuaImpl, event_manager: &mut EventManager) {
     let delta = math_utils::clamp(
-        player.intent.turn_arms_angle,
+        lua_impl.intent.turn_arms_angle,
         -MAX_ARMS_TURN_RATE,
         MAX_ARMS_TURN_RATE,
     );
@@ -618,9 +619,10 @@ fn determine_vision_events(game: &Game, event_manager: &mut EventManager) {
 }
 
 fn create_attacks(game: &mut Game, event_manager: &mut EventManager) {
-    for player in game.players.iter_mut() {
-        if player.intent.attack {
-            player.intent.attack = false;
+    for (index, player) in game.players.iter_mut().enumerate() {
+        let lua_impl = &mut game.lua_impls[index];
+        if lua_impl.intent.attack {
+            lua_impl.intent.attack = false;
             let attack = Attack {
                 id: game.attack_ids.next(),
                 owner: player.id,
@@ -708,42 +710,55 @@ fn advance_game_state(game: &mut Game, game_events: &[GameEvent]) {
             GameEvent::RoundStarted(_) => {}
             GameEvent::RoundOver(_) => todo!("handle end of round"),
             GameEvent::PlayerPositionUpdated(id, delta) => {
-                let player = game.player(*id);
-                let mut pos = player.pos.write().unwrap();
-                let distance = pos.dist(&Point { x: 0.0, y: 0.0 }); // TODO: length of a Vec2
-                pos.x += delta.x;
-                pos.y += delta.y;
-                player.intent.distance = f32::max(player.intent.distance - distance, 0.0)
+                let distance;
+                {
+                    let player = game.player(*id);
+                    let mut pos = player.pos.write().unwrap();
+                    distance = pos.dist(&Point { x: 0.0, y: 0.0 }); // TODO: length of a Vec2
+                    pos.x += delta.x;
+                    pos.y += delta.y;
+                }
+                let lua_impl = game.lua_impl(*id);
+                lua_impl.intent.distance = f32::max(lua_impl.intent.distance - distance, 0.0)
             }
             GameEvent::PlayerTurned(id, delta) => {
-                let player = game.player(*id);
-                player.heading = math_utils::normalize_abs_angle(player.heading + *delta);
-                player.intent.turn_angle = if player.intent.turn_angle.abs() < MAX_TURN_RATE {
+                {
+                    let player = game.player(*id);
+                    player.heading = math_utils::normalize_abs_angle(player.heading + *delta);
+                }
+                let lua_impl = game.lua_impl(*id);
+                lua_impl.intent.turn_angle = if lua_impl.intent.turn_angle.abs() < MAX_TURN_RATE {
                     0.0
                 } else {
-                    player.intent.turn_angle - *delta
+                    lua_impl.intent.turn_angle - *delta
                 };
             }
             GameEvent::PlayerHeadTurned(id, delta) => {
-                let player = game.player(*id);
-                let heading = clamp_turn_angle(player.head_heading + *delta);
-                player.head_heading = heading;
-                player.intent.turn_head_angle =
-                    if player.intent.turn_head_angle.abs() < MAX_HEAD_TURN_RATE {
+                {
+                    let player = game.player(*id);
+                    let heading = clamp_turn_angle(player.head_heading + *delta);
+                    player.head_heading = heading;
+                }
+                let lua_impl = game.lua_impl(*id);
+                lua_impl.intent.turn_head_angle =
+                    if lua_impl.intent.turn_head_angle.abs() < MAX_HEAD_TURN_RATE {
                         0.0
                     } else {
-                        player.intent.turn_head_angle - *delta
+                        lua_impl.intent.turn_head_angle - *delta
                     };
             }
             GameEvent::PlayerArmsTurned(id, delta) => {
-                let player = game.player(*id);
-                let heading = clamp_turn_angle(player.arms_heading + *delta);
-                player.arms_heading = heading;
-                player.intent.turn_arms_angle =
-                    if player.intent.turn_arms_angle.abs() < MAX_ARMS_TURN_RATE {
+                {
+                    let player = game.player(*id);
+                    let heading = clamp_turn_angle(player.arms_heading + *delta);
+                    player.arms_heading = heading;
+                }
+                let lua_impl = game.lua_impl(*id);
+                lua_impl.intent.turn_arms_angle =
+                    if lua_impl.intent.turn_arms_angle.abs() < MAX_ARMS_TURN_RATE {
                         0.0
                     } else {
-                        player.intent.turn_arms_angle - *delta
+                        lua_impl.intent.turn_arms_angle - *delta
                     };
             }
             GameEvent::EnemySeen(_, _, _) => {}
@@ -804,7 +819,6 @@ impl GameData {
 pub fn step(
     game: &mut Game,
     event_manager: &mut EventManager,
-    lua_impls: &[LuaImpl],
     game_writer: &mpsc::Sender<GameData>,
 ) -> LuaResult<()> {
     event_manager.init_tick(game);
@@ -820,17 +834,18 @@ pub fn step(
 
     for (index, player) in game.players.iter_mut().enumerate() {
         let player_events = game_events_to_player_events(player, game_events);
-        let mut commands = dispatch_player_events(player_events, &lua_impls[index])?;
+        let lua_impl = &mut game.lua_impls[index];
+        let mut commands = dispatch_player_events(player_events, lua_impl)?;
         reduce_commands(&mut commands);
         for cmd in commands.iter() {
             match cmd {
-                PlayerCommand::Attack => player.intent.attack = true,
-                PlayerCommand::Turn(angle) => player.intent.turn_angle = *angle,
-                PlayerCommand::TurnHead(angle) => player.intent.turn_head_angle = *angle,
-                PlayerCommand::TurnArms(angle) => player.intent.turn_arms_angle = *angle,
+                PlayerCommand::Attack => lua_impl.intent.attack = true,
+                PlayerCommand::Turn(angle) => lua_impl.intent.turn_angle = *angle,
+                PlayerCommand::TurnHead(angle) => lua_impl.intent.turn_head_angle = *angle,
+                PlayerCommand::TurnArms(angle) => lua_impl.intent.turn_arms_angle = *angle,
                 PlayerCommand::Move(dir, dist) => {
-                    player.intent.direction = dir.clone();
-                    player.intent.distance = *dist;
+                    lua_impl.intent.direction = dir.clone();
+                    lua_impl.intent.distance = *dist;
                 }
             }
         }
@@ -860,14 +875,13 @@ pub fn step(
 pub fn run_round(
     game: &mut Game,
     event_manager: &mut EventManager,
-    lua_impls: &[LuaImpl],
     // FIXME: find out whether it's better to pass such things via & or without
     delay: &std::time::Duration,
     game_writer: &mpsc::Sender<GameData>,
 ) -> LuaResult<()> {
     loop {
         std::thread::sleep(*delay);
-        step(game, event_manager, lua_impls, game_writer)?;
+        step(game, event_manager, game_writer)?;
         match game.round_state {
             RoundState::Ongoing => {}
             RoundState::Won(id) => {
@@ -884,7 +898,6 @@ pub fn run_round(
 
 pub fn run_game(
     game: &mut Game,
-    lua_impls: &[LuaImpl],
     delay: &std::time::Duration,
     game_writer: &mpsc::Sender<GameData>,
 ) -> LuaResult<()> {
@@ -892,7 +905,7 @@ pub fn run_game(
     let max_rounds = 2;
     for round in 1..max_rounds {
         game.round = round;
-        run_round(game, &mut event_manager, lua_impls, delay, game_writer)?;
+        run_round(game, &mut event_manager, delay, game_writer)?;
     }
     Ok(())
 }
