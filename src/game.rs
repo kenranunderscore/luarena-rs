@@ -265,7 +265,7 @@ pub struct Player {
     pub hp: f32,
     pub meta: PlayerMeta,
     pub pos: Arc<RwLock<Point>>,
-    pub heading: f32,
+    pub heading: Arc<RwLock<f32>>,
     pub head_heading: f32,
     pub arms_heading: f32,
 }
@@ -277,7 +277,7 @@ impl Player {
             hp: INITIAL_HP,
             meta,
             pos: Arc::new(RwLock::new(Point::zero())),
-            heading: 0.0,
+            heading: Arc::new(RwLock::new(0.0)),
             head_heading: 0.0,
             arms_heading: 0.0,
         }
@@ -286,7 +286,7 @@ impl Player {
     // TODO: also randomize headings?
     pub fn reset(&mut self, new_pos: Point) {
         self.hp = INITIAL_HP;
-        self.heading = 0.0;
+        *self.heading.write().unwrap() = 0.0;
         self.head_heading = 0.0;
         self.arms_heading = 0.0;
         let mut pos = self.pos.write().unwrap();
@@ -295,11 +295,11 @@ impl Player {
     }
 
     pub fn effective_head_heading(&self) -> f32 {
-        math_utils::normalize_abs_angle(self.heading + self.head_heading)
+        math_utils::normalize_abs_angle(*self.heading.read().unwrap() + self.head_heading)
     }
 
     pub fn effective_arms_heading(&self) -> f32 {
-        math_utils::normalize_abs_angle(self.heading + self.arms_heading)
+        math_utils::normalize_abs_angle(*self.heading.read().unwrap() + self.arms_heading)
     }
 
     pub fn alive(&self) -> bool {
@@ -319,6 +319,10 @@ fn register_lua_library(player: &Player, lua_player: &LuaImpl) -> LuaResult<()> 
     let pos_ref = Arc::clone(&player.pos);
     let y = lua.create_function(move |_, _: ()| Ok(pos_ref.read().unwrap().y))?;
     me.set("y", y)?;
+
+    let heading_ref = Arc::clone(&player.heading);
+    let heading = lua.create_function(move |_, _: ()| Ok(*heading_ref.read().unwrap()))?;
+    me.set("heading", heading)?;
 
     let move_cmd = lua.create_function(|_, dist: f32| {
         Ok(PlayerCommand::Move(MovementDirection::Forward, dist))
@@ -508,7 +512,7 @@ fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
         let lua_impl = &game.lua_impls[index];
         let delta = math_utils::clamp(lua_impl.intent.turn_angle, -MAX_TURN_RATE, MAX_TURN_RATE);
         event_manager.record(GameEvent::PlayerTurned(player.id, delta));
-        let heading = math_utils::normalize_abs_angle(player.heading + delta);
+        let heading = math_utils::normalize_abs_angle(*player.heading.read().unwrap() + delta);
         let velocity = f32::min(lua_impl.intent.distance, MAX_VELOCITY);
         let dir_heading = match lua_impl.intent.direction {
             MovementDirection::Forward => 0.0,
@@ -686,7 +690,7 @@ fn create_attacks(game: &mut Game, event_manager: &mut EventManager) {
                 owner: player.id,
                 pos: player.pos.read().unwrap().clone(),
                 velocity: 2.5,
-                heading: player.arms_heading,
+                heading: player.effective_arms_heading(),
             };
             event_manager.record(GameEvent::AttackCreated(player.id, attack));
         }
@@ -787,7 +791,9 @@ fn advance_game_state(game: &mut Game, game_events: &[GameEvent]) {
             GameEvent::PlayerTurned(id, delta) => {
                 {
                     let player = game.player(*id);
-                    player.heading = math_utils::normalize_abs_angle(player.heading + *delta);
+                    let heading = *player.heading.read().unwrap();
+                    *player.heading.write().unwrap() =
+                        math_utils::normalize_abs_angle(heading + *delta);
                 }
                 let lua_impl = game.lua_impl(*id);
                 lua_impl.intent.turn_angle = if lua_impl.intent.turn_angle.abs() < MAX_TURN_RATE {
@@ -933,7 +939,7 @@ pub fn step(
             color: player.meta.color.clone(),
             x: p.x.round() as i32,
             y: p.y.round() as i32,
-            heading: player.heading,
+            heading: *player.heading.read().unwrap(),
             head_heading: player.effective_head_heading(),
             arms_heading: player.effective_arms_heading(),
         });
