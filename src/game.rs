@@ -160,14 +160,8 @@ pub struct PlayerMeta {
     entrypoint: String,
 }
 
-pub struct LuaImpl {
-    lua: Lua,
-    key: LuaRegistryKey,
-    intent: PlayerIntent,
-}
-
-impl LuaImpl {
-    pub fn read_meta(player_dir: &str) -> LuaResult<PlayerMeta> {
+impl PlayerMeta {
+    pub fn from_lua(player_dir: &str) -> LuaResult<PlayerMeta> {
         let lua = Lua::new();
         // FIXME: use PathBuf or similar
         let meta_file = format!("{player_dir}/meta.lua");
@@ -187,7 +181,15 @@ impl LuaImpl {
             entrypoint,
         })
     }
+}
 
+pub struct LuaImpl {
+    lua: Lua,
+    key: LuaRegistryKey,
+    intent: PlayerIntent,
+}
+
+impl LuaImpl {
     pub fn new(code: &str) -> LuaResult<Self> {
         let lua = Lua::new();
         lua.load_from_std_lib(LuaStdLib::ALL_SAFE)?;
@@ -267,9 +269,8 @@ pub struct Player {
 }
 
 impl Player {
-    pub fn new(player_dir: &str, id: u8, x: f32, y: f32) -> LuaResult<Player> {
-        let meta = LuaImpl::read_meta(player_dir)?;
-        let res = Self {
+    pub fn new(meta: PlayerMeta, id: u8, x: f32, y: f32) -> Self {
+        Self {
             id,
             hp: 100.0,
             meta,
@@ -277,8 +278,7 @@ impl Player {
             heading: 0.0,
             head_heading: 0.0,
             arms_heading: 0.0,
-        };
-        Ok(res)
+        }
     }
 
     pub fn effective_head_heading(&self) -> f32 {
@@ -395,7 +395,11 @@ impl Game {
         }
     }
 
-    pub fn add_lua_player(&mut self, player: Player, lua_impl: LuaImpl) -> LuaResult<()> {
+    pub fn add_lua_player(&mut self, path: &str, x: f32, y: f32) -> LuaResult<()> {
+        let meta = PlayerMeta::from_lua(path)?;
+        let lua_impl = load_lua_player(path, &meta)?;
+        let id = self.players.len() as u8; // FIXME
+        let player = Player::new(meta, id, x, y);
         register_lua_library(&player, &lua_impl)?;
         self.players.push(player);
         self.lua_impls.push(lua_impl);

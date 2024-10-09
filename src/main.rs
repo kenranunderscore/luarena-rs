@@ -21,21 +21,9 @@ fn main() -> LuaResult<()> {
         .build();
 
     std::thread::spawn(move || -> LuaResult<()> {
-        // FIXME: IDs and random positions -> do this in add_(lua)_player or
-        // something like that
-        let dir1 = "players/kai";
-        let player1 = Player::new(dir1, 0, 70.0, 450.0)?;
-        let meta1 = LuaImpl::read_meta(dir1)?;
-        let lua_impl1 = load_lua_player(dir1, &meta1)?;
-
-        let dir2 = "players/lloyd";
-        let player2 = Player::new(dir2, 1, 700.0, 440.0)?;
-        let meta2 = LuaImpl::read_meta(dir2)?;
-        let lua_impl2 = load_lua_player(dir2, &meta2)?;
-
         let mut game = Game::new();
-        game.add_lua_player(player1, lua_impl1)?;
-        game.add_lua_player(player2, lua_impl2)?;
+        game.add_lua_player("players/kai", 70.0, 450.0)?;
+        game.add_lua_player("players/lloyd", 700.0, 440.0)?;
 
         let delay = Duration::from_millis(5);
         run_game(&mut game, &delay, &game_writer)
