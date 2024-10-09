@@ -35,16 +35,16 @@ fn main() -> LuaResult<()> {
     });
 
     rl.set_target_fps(60);
+    let mut latest_data = None;
     while !rl.window_should_close() && !game_thread.is_finished() {
         let mut d = rl.begin_drawing(&thread);
         d.draw_fps(5, 5);
 
-        let mut latest_data = None;
         while let Ok(data) = game_reader.try_recv() {
             latest_data = Some(data);
         }
-        if let Some(data) = latest_data {
-            d.clear_background(raylib::prelude::Color::BLACK);
+        d.clear_background(raylib::prelude::Color::BLACK);
+        if let Some(data) = &latest_data {
             render::game(&mut d, &data);
         }
     }
