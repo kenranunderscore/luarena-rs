@@ -1,7 +1,6 @@
-use std::f32::consts::PI;
-
 pub const HALF_PI: f32 = PI / 2.0;
 pub const TWO_PI: f32 = PI * 2.0;
+pub const PI: f32 = std::f32::consts::PI;
 
 #[derive(Clone, Debug)]
 pub struct Point {

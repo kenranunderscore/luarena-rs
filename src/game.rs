@@ -479,7 +479,7 @@ fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
         let velocity = f32::min(lua_impl.intent.distance, MAX_VELOCITY);
         let dir_heading = match lua_impl.intent.direction {
             MovementDirection::Forward => 0.0,
-            MovementDirection::Backward => crate::PI as f32,
+            MovementDirection::Backward => math_utils::PI,
             MovementDirection::Left => -HALF_PI,
             MovementDirection::Right => HALF_PI,
         };
