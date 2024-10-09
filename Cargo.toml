@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 float_eq = "1.0.1"
+rand = "0.8.5"
 [dependencies.mlua]
 version = "0.9.9"
 features = ["lua54", "vendored"]

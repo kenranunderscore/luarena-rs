@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, RwLock};
 
 use mlua::prelude::*;
+use rand::Rng;
 
 use crate::math_utils::{self, Point, HALF_PI};
 use crate::settings::*;
@@ -270,16 +271,27 @@ pub struct Player {
 }
 
 impl Player {
-    pub fn new(meta: PlayerMeta, id: u8, x: f32, y: f32) -> Self {
+    pub fn new(meta: PlayerMeta, id: u8) -> Self {
         Self {
             id,
-            hp: 100.0,
+            hp: INITIAL_HP,
             meta,
-            pos: Arc::new(RwLock::new(Point { x, y })),
+            pos: Arc::new(RwLock::new(Point::zero())),
             heading: 0.0,
             head_heading: 0.0,
             arms_heading: 0.0,
         }
+    }
+
+    // TODO: also randomize headings?
+    pub fn reset(&mut self, new_pos: Point) {
+        self.hp = INITIAL_HP;
+        self.heading = 0.0;
+        self.head_heading = 0.0;
+        self.arms_heading = 0.0;
+        let mut pos = self.pos.write().unwrap();
+        pos.x = new_pos.x;
+        pos.y = new_pos.y;
     }
 
     pub fn effective_head_heading(&self) -> f32 {
@@ -396,15 +408,31 @@ impl Game {
         }
     }
 
-    pub fn add_lua_player(&mut self, path: &str, x: f32, y: f32) -> LuaResult<()> {
+    pub fn add_lua_player(&mut self, path: &str) -> LuaResult<()> {
         let meta = PlayerMeta::from_lua(path)?;
         let lua_impl = load_lua_player(path, &meta)?;
         let id = self.players.len() as u8; // FIXME
-        let player = Player::new(meta, id, x, y);
+        let player = Player::new(meta, id);
         register_lua_library(&player, &lua_impl)?;
         self.players.push(player);
         self.lua_impls.push(lua_impl);
         Ok(())
+    }
+
+    pub fn init_round(&mut self, round: i32) {
+        let mut rng = rand::thread_rng();
+        self.tick = 0;
+        self.round = round;
+        self.round_state = RoundState::Ongoing;
+
+        let min = PLAYER_RADIUS + 5.0;
+        let max_x = WIDTH as f32 - PLAYER_RADIUS - 5.0;
+        let max_y = HEIGHT as f32 - PLAYER_RADIUS - 5.0;
+        for player in self.players.iter_mut() {
+            // FIXME: don't create collisions
+            player.pos.write().unwrap().x = rng.gen_range(min..max_x) as f32;
+            player.pos.write().unwrap().y = rng.gen_range(min..max_y) as f32;
+        }
     }
 
     pub fn living_players(&self) -> impl Iterator<Item = &Player> {
@@ -959,7 +987,7 @@ pub fn run_game(
     let mut event_manager = EventManager::new();
     let max_rounds = 2;
     for round in 1..max_rounds {
-        game.round = round;
+        game.init_round(round);
         run_round(game, &mut event_manager, delay, game_writer, cancel)?;
     }
     Ok(())

@@ -27,10 +27,10 @@ fn main() -> LuaResult<()> {
 
     let game_thread = std::thread::spawn(move || -> LuaResult<()> {
         let mut game = Game::new();
-        game.add_lua_player("players/kai", 70.0, 450.0)?;
-        game.add_lua_player("players/lloyd", 700.0, 440.0)?;
+        game.add_lua_player("players/kai")?;
+        game.add_lua_player("players/lloyd")?;
 
-        let delay = Duration::from_millis(1);
+        let delay = Duration::from_millis(7);
         run_game(&mut game, &delay, &game_writer, &cancel_ref)
     });
 

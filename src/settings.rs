@@ -1,5 +1,6 @@
 use crate::math_utils::HALF_PI;
 
+pub const INITIAL_HP: f32 = 100.0;
 pub const MAX_TURN_RATE: f32 = 0.05;
 pub const MAX_HEAD_TURN_RATE: f32 = 0.1;
 pub const MAX_ARMS_TURN_RATE: f32 = 0.08;

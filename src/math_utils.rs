@@ -1,3 +1,8 @@
+use rand::{
+    distributions::{Distribution, Standard},
+    Rng,
+};
+
 pub const HALF_PI: f32 = PI / 2.0;
 pub const TWO_PI: f32 = PI * 2.0;
 pub const PI: f32 = std::f32::consts::PI;
@@ -29,6 +34,16 @@ impl Point {
 
     pub fn zero() -> Self {
         Self { x: 0.0, y: 0.0 }
+    }
+}
+
+impl Distribution<Point> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Point {
+        let (rand_x, rand_y) = rng.gen();
+        Point {
+            x: rand_x,
+            y: rand_y,
+        }
     }
 }
 
