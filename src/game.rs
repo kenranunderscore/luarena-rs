@@ -434,8 +434,11 @@ impl Game {
         let max_y = HEIGHT as f32 - PLAYER_RADIUS - 5.0;
         for player in self.players.iter_mut() {
             // FIXME: don't create collisions
-            player.pos.write().unwrap().x = rng.gen_range(min..max_x) as f32;
-            player.pos.write().unwrap().y = rng.gen_range(min..max_y) as f32;
+            let new_pos = Point {
+                x: rng.gen_range(min..max_x) as f32,
+                y: rng.gen_range(min..max_y) as f32,
+            };
+            player.reset(new_pos);
         }
     }
 
