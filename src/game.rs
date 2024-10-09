@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, RwLock};
 
 use mlua::prelude::*;
@@ -924,34 +925,42 @@ pub fn run_round(
     // FIXME: find out whether it's better to pass such things via & or without
     delay: &std::time::Duration,
     game_writer: &mpsc::Sender<GameData>,
+    cancel: &Arc<AtomicBool>,
 ) -> LuaResult<()> {
     loop {
+        if cancel.load(Ordering::Relaxed) {
+            println!("Game cancelled");
+            break;
+        }
+
         std::thread::sleep(*delay);
         step(game, event_manager, game_writer)?;
         match game.round_state {
             RoundState::Ongoing => {}
             RoundState::Won(id) => {
                 println!("Player {id} has won!");
-                break Ok(());
+                break;
             }
             RoundState::Draw => {
                 println!("--- DRAW ---");
-                break Ok(());
+                break;
             }
         }
     }
+    Ok(())
 }
 
 pub fn run_game(
     game: &mut Game,
     delay: &std::time::Duration,
     game_writer: &mpsc::Sender<GameData>,
+    cancel: &Arc<AtomicBool>,
 ) -> LuaResult<()> {
     let mut event_manager = EventManager::new();
     let max_rounds = 2;
     for round in 1..max_rounds {
         game.round = round;
-        run_round(game, &mut event_manager, delay, game_writer)?;
+        run_round(game, &mut event_manager, delay, game_writer, cancel)?;
     }
     Ok(())
 }
