@@ -28,9 +28,9 @@ fn player_vision(d: &mut raylib::drawing::RaylibDrawHandle, x: i32, y: i32, head
     let vision_delta = ANGLE_OF_VISION / 2.0;
     let side_len = (WIDTH + HEIGHT) as f32; // don't know whether this is smart or dumb...
     let origin = Vector2::new(x as f32, y as f32);
-    let left_angle = math_utils::normalize_abs_angle(heading - vision_delta);
+    let left_angle = math_utils::normalize_absolute_angle(heading - vision_delta);
     let left = math_utils::line_endpoint(origin.x, origin.y, side_len, left_angle);
-    let right_angle = math_utils::normalize_abs_angle(heading + vision_delta);
+    let right_angle = math_utils::normalize_absolute_angle(heading + vision_delta);
     let right = math_utils::line_endpoint(origin.x, origin.y, side_len, right_angle);
     d.draw_triangle(
         Vector2::new(left.x, left.y),

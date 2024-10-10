@@ -300,11 +300,11 @@ impl Player {
     }
 
     pub fn effective_head_heading(&self) -> f32 {
-        math_utils::normalize_abs_angle(*self.heading.read().unwrap() + self.head_heading)
+        math_utils::normalize_absolute_angle(*self.heading.read().unwrap() + self.head_heading)
     }
 
     pub fn effective_arms_heading(&self) -> f32 {
-        math_utils::normalize_abs_angle(*self.heading.read().unwrap() + self.arms_heading)
+        math_utils::normalize_absolute_angle(*self.heading.read().unwrap() + self.arms_heading)
     }
 
     pub fn alive(&self) -> bool {
@@ -520,7 +520,7 @@ fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
         let lua_impl = &game.lua_impls[index];
         let delta = math_utils::clamp(lua_impl.intent.turn_angle, -MAX_TURN_RATE, MAX_TURN_RATE);
         event_manager.record(GameEvent::PlayerTurned(player.id, delta));
-        let heading = math_utils::normalize_abs_angle(*player.heading.read().unwrap() + delta);
+        let heading = math_utils::normalize_absolute_angle(*player.heading.read().unwrap() + delta);
         let velocity = f32::min(lua_impl.intent.distance, MAX_VELOCITY);
         let dir_heading = match lua_impl.intent.direction {
             MovementDirection::Forward => 0.0,
@@ -649,7 +649,7 @@ fn can_spot(
     let right = view_angle + delta;
     let dist = origin.dist(target);
     let alpha = f32::atan(player_radius / dist);
-    let angle = math_utils::normalize_abs_angle(math_utils::angle_between(origin, target));
+    let angle = math_utils::normalize_absolute_angle(math_utils::angle_between(origin, target));
     let alpha_left = angle - alpha;
     let alpha_right = angle + alpha;
     math_utils::between(alpha_left, left, right)
@@ -815,7 +815,7 @@ fn advance_game_state(game: &mut Game, game_events: &[GameEvent]) {
                     let player = game.player(*id);
                     let heading = *player.heading.read().unwrap();
                     *player.heading.write().unwrap() =
-                        math_utils::normalize_abs_angle(heading + *delta);
+                        math_utils::normalize_absolute_angle(heading + *delta);
                 }
                 let lua_impl = game.lua_impl(*id);
                 lua_impl.intent.turn_angle = if lua_impl.intent.turn_angle.abs() < MAX_TURN_RATE {

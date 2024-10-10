@@ -70,13 +70,26 @@ pub fn between(x: f32, lower: f32, upper: f32) -> bool {
     lower <= x && x <= upper
 }
 
-pub fn normalize_abs_angle(angle: f32) -> f32 {
+pub fn normalize_absolute_angle(angle: f32) -> f32 {
     if angle >= TWO_PI {
-        normalize_abs_angle(angle - TWO_PI)
+        normalize_absolute_angle(angle - TWO_PI)
     } else if angle < 0.0 {
-        normalize_abs_angle(angle + TWO_PI)
+        normalize_absolute_angle(angle + TWO_PI)
     } else {
         angle
+    }
+}
+
+pub fn normalize_relative_angle(angle: f32) -> f32 {
+    if angle >= -PI && angle < PI {
+        angle
+    } else {
+        let a = normalize_absolute_angle(angle);
+        if a >= PI {
+            a - TWO_PI
+        } else {
+            a
+        }
     }
 }
 
@@ -86,37 +99,65 @@ mod tests {
     use float_eq::assert_float_eq;
     use std::f32::consts::PI;
 
-    mod normalize_abs_angle {
+    mod normalize_absolute_angle {
         use super::*;
 
         #[test]
         fn angle_greater_than_2pi() {
-            let res = normalize_abs_angle(7.0);
+            let res = normalize_absolute_angle(7.0);
             assert_float_eq!(res, 0.7168, abs <= 0.0001);
         }
 
         #[test]
         fn angle_greater_than_4pi() {
-            let res = normalize_abs_angle(5.0 * PI);
+            let res = normalize_absolute_angle(5.0 * PI);
             assert_float_eq!(res, PI, abs <= 0.0001);
         }
 
         #[test]
         fn angle_less_than_0() {
-            let res = normalize_abs_angle(-PI);
+            let res = normalize_absolute_angle(-PI);
             assert_float_eq!(res, PI, abs <= 0.0001);
         }
 
         #[test]
         fn angle_less_than_minus_2pi() {
-            let res = normalize_abs_angle(-5.0 * PI);
+            let res = normalize_absolute_angle(-5.0 * PI);
             assert_float_eq!(res, PI, abs <= 0.0001);
         }
 
         #[test]
         fn angle_between_0_and_2pi() {
-            let res = normalize_abs_angle(4.123);
+            let res = normalize_absolute_angle(4.123);
             assert_float_eq!(res, 4.123, abs <= 0.0001);
+        }
+    }
+
+    mod normalize_relative_angle {
+        use super::*;
+
+        #[test]
+        fn angle_greater_than_2pi() {
+            let res = normalize_relative_angle(7.0);
+            assert_float_eq!(res, 0.7168, abs <= 0.0001);
+        }
+
+        #[test]
+        fn angle_less_than_minus_pi() {
+            let res = normalize_relative_angle(-2.0 * PI);
+            assert_float_eq!(res, 0.0, abs <= 0.0001);
+        }
+
+        #[test]
+        fn angle_between_minus_pi_and_pi() {
+            let res = normalize_relative_angle(1.123);
+            assert_float_eq!(res, 1.123, abs <= 0.0001);
+        }
+
+        #[test]
+        fn angle_between_pi_and_2pi() {
+            let res = normalize_relative_angle(3.0 / 2.0 * PI);
+            assert_float_eq!(res, -PI / 2.0, abs <= 0.0001);
         }
     }
 }
