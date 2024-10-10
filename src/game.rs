@@ -357,68 +357,101 @@ impl Player {
     }
 }
 
-fn register_lua_library(player: &Player, lua_player: &LuaImpl) -> LuaResult<()> {
-    let lua = &lua_player.lua;
-    let me = lua.create_table()?;
-
+fn register_player_state_accessors(player: &Player, t: &mut LuaTable, lua: &Lua) -> LuaResult<()> {
     let pos_ref = Arc::clone(&player.pos);
     let x = lua.create_function(move |_, _: ()| Ok(pos_ref.read().unwrap().x))?;
-    me.set("x", x)?;
+    t.set("x", x)?;
 
     // need to clone the ref again, as we move to make the closure work
     let pos_ref = Arc::clone(&player.pos);
     let y = lua.create_function(move |_, _: ()| Ok(pos_ref.read().unwrap().y))?;
-    me.set("y", y)?;
+    t.set("y", y)?;
 
     let hp_ref = Arc::clone(&player.hp);
     let hp = lua.create_function(move |_, _: ()| Ok(*hp_ref.read().unwrap()))?;
-    me.set("hp", hp)?;
+    t.set("hp", hp)?;
 
     let heading_ref = Arc::clone(&player.heading);
     let heading = lua.create_function(move |_, _: ()| Ok(*heading_ref.read().unwrap()))?;
-    me.set("heading", heading)?;
+    t.set("heading", heading)?;
 
     let head_heading_ref = Arc::clone(&player.head_heading);
     let head_heading =
         lua.create_function(move |_, _: ()| Ok(*head_heading_ref.read().unwrap()))?;
-    me.set("head_heading", head_heading)?;
+    t.set("head_heading", head_heading)?;
 
     let arms_heading_ref = Arc::clone(&player.arms_heading);
     let arms_heading =
         lua.create_function(move |_, _: ()| Ok(*arms_heading_ref.read().unwrap()))?;
-    me.set("arms_heading", arms_heading)?;
+    t.set("arms_heading", arms_heading)?;
 
-    let move_cmd = lua.create_function(|_, dist: f32| {
+    Ok(())
+}
+
+fn register_player_commands(t: &mut LuaTable, lua: &Lua) -> LuaResult<()> {
+    let move_ = lua.create_function(|_, dist: f32| {
         Ok(PlayerCommand::Move(MovementDirection::Forward, dist))
     })?;
-    me.set("move", move_cmd)?;
+    t.set("move", move_)?;
 
-    let move_backward_cmd = lua.create_function(|_, dist: f32| {
+    let move_backward = lua.create_function(|_, dist: f32| {
         Ok(PlayerCommand::Move(MovementDirection::Backward, dist))
     })?;
-    me.set("move_backward", move_backward_cmd)?;
+    t.set("move_backward", move_backward)?;
 
-    let move_left_cmd =
+    let move_left =
         lua.create_function(|_, dist: f32| Ok(PlayerCommand::Move(MovementDirection::Left, dist)))?;
-    me.set("move_left", move_left_cmd)?;
+    t.set("move_left", move_left)?;
 
-    let move_right_cmd = lua
+    let move_right = lua
         .create_function(|_, dist: f32| Ok(PlayerCommand::Move(MovementDirection::Right, dist)))?;
-    me.set("move_right", move_right_cmd)?;
+    t.set("move_right", move_right)?;
 
-    let attack_cmd = lua.create_function(|_, _: ()| Ok(PlayerCommand::Attack))?;
-    me.set("attack", attack_cmd)?;
+    let attack = lua.create_function(|_, _: ()| Ok(PlayerCommand::Attack))?;
+    t.set("attack", attack)?;
 
-    let turn_cmd = lua.create_function(|_, angle: f32| Ok(PlayerCommand::Turn(angle)))?;
-    me.set("turn", &turn_cmd)?;
+    let turn = lua.create_function(|_, angle: f32| Ok(PlayerCommand::Turn(angle)))?;
+    t.set("turn", &turn)?;
 
-    let turn_head_cmd = lua.create_function(|_, angle: f32| Ok(PlayerCommand::TurnHead(angle)))?;
-    me.set("turn_head", turn_head_cmd)?;
+    let turn_head = lua.create_function(|_, angle: f32| Ok(PlayerCommand::TurnHead(angle)))?;
+    t.set("turn_head", turn_head)?;
 
-    let turn_arms_cmd = lua.create_function(|_, angle: f32| Ok(PlayerCommand::TurnArms(angle)))?;
-    me.set("turn_arms", turn_arms_cmd)?;
+    let turn_arms = lua.create_function(|_, angle: f32| Ok(PlayerCommand::TurnArms(angle)))?;
+    t.set("turn_arms", turn_arms)?;
 
+    Ok(())
+}
+
+fn register_utils(lua: &Lua) -> LuaResult<()> {
+    let utils = lua.create_table()?;
+    utils.set(
+        "normalize_absolute_angle",
+        lua.create_function(|_, angle: f32| Ok(math_utils::normalize_absolute_angle(angle)))?,
+    )?;
+    utils.set(
+        "normalize_relative_angle",
+        lua.create_function(|_, angle: f32| Ok(math_utils::normalize_relative_angle(angle)))?,
+    )?;
+    utils.set(
+        "to_radians",
+        lua.create_function(|_, angle: f32| Ok(angle.to_radians()))?,
+    )?;
+    utils.set(
+        "from_radians",
+        lua.create_function(|_, angle: f32| Ok(angle.to_degrees()))?,
+    )?;
+
+    lua.globals().set("utils", utils)?;
+    Ok(())
+}
+
+fn register_lua_library(player: &Player, lua_player: &LuaImpl) -> LuaResult<()> {
+    let lua = &lua_player.lua;
+    let mut me = lua.create_table()?;
+    register_player_state_accessors(player, &mut me, lua)?;
+    register_player_commands(&mut me, lua)?;
     lua.globals().set("me", me)?;
+    register_utils(lua)?;
     Ok(())
 }
 
