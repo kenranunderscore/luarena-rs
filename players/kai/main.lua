@@ -12,17 +12,14 @@ end
 
 function m.on_round_started(n)
 	print("on round started: " .. n)
-	return {}
 end
 
 function m.on_death()
 	print("I'm dead")
-	return {}
 end
 
 function m.on_attack_hit(name, x, y)
 	print("Gotcha, " .. name)
-    return {}
 end
 
 function normalize_relative_angle(angle)

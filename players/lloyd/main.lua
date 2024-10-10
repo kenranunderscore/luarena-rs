@@ -6,12 +6,10 @@ end
 
 function m.on_death()
 	print("[lloyd] I'm dead, killed by ?????")
-    return {}
 end
 
 function m.on_hit_by(id)
 	print("HIT OH NO " .. id)
-    return {}
 end
 
 return m

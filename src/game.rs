@@ -92,6 +92,33 @@ impl<'a> FromLua<'a> for PlayerCommand {
     }
 }
 
+pub struct PlayerCommands {
+    value: Vec<PlayerCommand>,
+}
+
+impl PlayerCommands {
+    fn none() -> Self {
+        Self { value: vec![] }
+    }
+}
+
+impl From<Vec<PlayerCommand>> for PlayerCommands {
+    fn from(value: Vec<PlayerCommand>) -> Self {
+        Self { value }
+    }
+}
+
+impl<'a> FromLua<'a> for PlayerCommands {
+    fn from_lua(value: LuaValue<'a>, lua: &'a Lua) -> LuaResult<Self> {
+        match value {
+            LuaValue::Nil => Ok(PlayerCommands::none()),
+            _ => Ok(PlayerCommands::from(Vec::<PlayerCommand>::from_lua(
+                value, lua,
+            )?)),
+        }
+    }
+}
+
 fn create_tagged_table<'a>(lua: &'a Lua, tag: &str) -> LuaResult<LuaTable<'a>> {
     let t = lua.create_table()?;
     t.set("tag", tag)?;
@@ -212,22 +239,19 @@ impl LuaImpl {
         Ok(t)
     }
 
-    fn call_event_handler<A>(&self, name: &str, args: A) -> LuaResult<Vec<PlayerCommand>>
+    fn call_event_handler<A>(&self, name: &str, args: A) -> LuaResult<PlayerCommands>
     where
         A: for<'a> IntoLuaMulti<'a>,
     {
         let t = self.table()?;
         if t.contains_key(name)? {
-            // TODO: decide whether to allow not returning anything from
-            // handlers
-            let res = t.call_function(name, args)?;
-            Ok(res)
+            t.call_function(name, args)
         } else {
-            Ok(vec![])
+            Ok(PlayerCommands::none())
         }
     }
 
-    pub fn on_event(&self, event: &PlayerEvent) -> LuaResult<Vec<PlayerCommand>> {
+    pub fn on_event(&self, event: &PlayerEvent) -> LuaResult<PlayerCommands> {
         match event {
             PlayerEvent::Tick(n) => self.call_event_handler("on_tick", *n),
             PlayerEvent::RoundStarted(n) => self.call_event_handler("on_round_started", *n),
@@ -662,7 +686,7 @@ fn dispatch_player_events(
 ) -> LuaResult<Vec<PlayerCommand>> {
     let mut commands = Vec::new();
     for e in player_events.iter() {
-        commands.append(&mut lua_player.on_event(&e)?);
+        commands.append(&mut lua_player.on_event(&e)?.value);
     }
     Ok(commands)
 }
@@ -1035,16 +1059,16 @@ mod tests {
         fn call_on_tick() {
             let player = LuaImpl::new("return { on_tick = function(n) return { { tag = \"move\", distance = 13.12, direction = \"left\" } } end }")
                 .expect("lua player could not be created");
-            let res: Vec<PlayerCommand> = player.on_event(&PlayerEvent::Tick(17)).unwrap();
-            let cmd = res.first().expect("some command");
+            let res: PlayerCommands = player.on_event(&PlayerEvent::Tick(17)).unwrap();
+            let cmd = res.value.first().expect("some command");
             assert_eq!(*cmd, PlayerCommand::Move(MovementDirection::Left, 13.12));
         }
 
         #[test]
         fn call_on_tick_if_missing() {
             let player = LuaImpl::new("return {}").unwrap();
-            let res: Vec<PlayerCommand> = player.on_event(&PlayerEvent::Tick(17)).unwrap();
-            assert_eq!(res.len(), 0);
+            let res: PlayerCommands = player.on_event(&PlayerEvent::Tick(17)).unwrap();
+            assert_eq!(res.value.len(), 0);
         }
     }
 
