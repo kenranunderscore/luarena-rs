@@ -940,42 +940,7 @@ fn check_for_round_end(game: &Game, event_manager: &mut EventManager) {
     }
 }
 
-pub fn step(
-    game: &mut Game,
-    event_manager: &mut EventManager,
-    game_writer: &mpsc::Sender<GameData>,
-) -> LuaResult<()> {
-    event_manager.init_tick(game);
-    check_for_round_end(game, event_manager);
-    // FIXME: EnemySeen is unnecessary/useless as a game event -> it only
-    // matters for players
-    determine_vision_events(game, event_manager);
-    transition_players(game, event_manager);
-    create_attacks(game, event_manager);
-    transition_attacks(game, event_manager);
-
-    let game_events: &[GameEvent] = event_manager.current_events();
-    advance_game_state(game, game_events);
-
-    for (index, player) in game.players.iter_mut().enumerate() {
-        let player_events = game_events_to_player_events(player, game_events);
-        let lua_impl = &mut game.lua_impls[index];
-        let mut commands = dispatch_player_events(player_events, lua_impl)?;
-        reduce_commands(&mut commands);
-        for cmd in commands.iter() {
-            match cmd {
-                PlayerCommand::Attack => lua_impl.intent.attack = true,
-                PlayerCommand::Turn(angle) => lua_impl.intent.turn_angle = *angle,
-                PlayerCommand::TurnHead(angle) => lua_impl.intent.turn_head_angle = *angle,
-                PlayerCommand::TurnArms(angle) => lua_impl.intent.turn_arms_angle = *angle,
-                PlayerCommand::Move(dir, dist) => {
-                    lua_impl.intent.direction = dir.clone();
-                    lua_impl.intent.distance = *dist;
-                }
-            }
-        }
-    }
-
+fn write_game_data(game: &Game, game_writer: &mpsc::Sender<GameData>) {
     let mut game_data = GameData::new();
     for player in game.living_players() {
         let p = player.pos.read().unwrap();
@@ -992,6 +957,49 @@ pub fn step(
         game_data.attacks.push(attack.pos.clone());
     }
     game_writer.send(game_data).unwrap();
+}
+
+fn run_lua_players(game: &mut Game, events: &[GameEvent]) -> LuaResult<()> {
+    for (index, player) in game.players.iter_mut().enumerate() {
+        let player_events = game_events_to_player_events(player, events);
+        let lua_impl = &mut game.lua_impls[index];
+        let mut commands = dispatch_player_events(player_events, lua_impl)?;
+        reduce_commands(&mut commands);
+        for cmd in commands.iter() {
+            match cmd {
+                PlayerCommand::Attack => lua_impl.intent.attack = true,
+                PlayerCommand::Turn(angle) => lua_impl.intent.turn_angle = *angle,
+                PlayerCommand::TurnHead(angle) => lua_impl.intent.turn_head_angle = *angle,
+                PlayerCommand::TurnArms(angle) => lua_impl.intent.turn_arms_angle = *angle,
+                PlayerCommand::Move(dir, dist) => {
+                    lua_impl.intent.direction = dir.clone();
+                    lua_impl.intent.distance = *dist;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+pub fn step(
+    game: &mut Game,
+    event_manager: &mut EventManager,
+    game_writer: &mpsc::Sender<GameData>,
+) -> LuaResult<()> {
+    event_manager.init_tick(game);
+    check_for_round_end(game, event_manager);
+    // FIXME: EnemySeen is unnecessary/useless as a game event -> it only
+    // matters for players
+    determine_vision_events(game, event_manager);
+    transition_players(game, event_manager);
+    create_attacks(game, event_manager);
+    transition_attacks(game, event_manager);
+
+    let game_events: &[GameEvent] = event_manager.current_events();
+    advance_game_state(game, game_events);
+    run_lua_players(game, game_events)?;
+
+    write_game_data(&game, game_writer);
 
     game.tick += 1;
     Ok(())
