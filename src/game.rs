@@ -289,49 +289,71 @@ impl Default for PlayerIntent {
     }
 }
 
+type ReadableFromLua<T> = Arc<RwLock<T>>;
+
 pub struct Player {
     pub id: u8,
-    pub hp: f32,
+    pub hp: ReadableFromLua<f32>,
     pub meta: PlayerMeta,
-    pub pos: Arc<RwLock<Point>>,
-    pub heading: Arc<RwLock<f32>>,
-    pub head_heading: f32,
-    pub arms_heading: f32,
+    pub pos: ReadableFromLua<Point>,
+    pub heading: ReadableFromLua<f32>,
+    pub head_heading: ReadableFromLua<f32>,
+    pub arms_heading: ReadableFromLua<f32>,
 }
 
 impl Player {
     pub fn new(meta: PlayerMeta, id: u8) -> Self {
         Self {
             id,
-            hp: INITIAL_HP,
+            hp: Arc::new(RwLock::new(INITIAL_HP)),
             meta,
             pos: Arc::new(RwLock::new(Point::zero())),
             heading: Arc::new(RwLock::new(0.0)),
-            head_heading: 0.0,
-            arms_heading: 0.0,
+            head_heading: Arc::new(RwLock::new(0.0)),
+            arms_heading: Arc::new(RwLock::new(0.0)),
         }
     }
 
     // TODO: also randomize headings?
     pub fn reset(&mut self, new_pos: Point) {
-        self.hp = INITIAL_HP;
+        *self.hp.write().unwrap() = INITIAL_HP;
         *self.heading.write().unwrap() = 0.0;
-        self.head_heading = 0.0;
-        self.arms_heading = 0.0;
+        *self.head_heading.write().unwrap() = 0.0;
+        *self.arms_heading.write().unwrap() = 0.0;
         let mut pos = self.pos.write().unwrap();
         pos.set_to(&new_pos);
     }
 
+    pub fn heading(&self) -> f32 {
+        *self.heading.read().unwrap()
+    }
+
+    pub fn head_heading(&self) -> f32 {
+        *self.head_heading.read().unwrap()
+    }
+
+    pub fn arms_heading(&self) -> f32 {
+        *self.arms_heading.read().unwrap()
+    }
+
+    pub fn hp(&self) -> f32 {
+        *self.hp.read().unwrap()
+    }
+
     pub fn effective_head_heading(&self) -> f32 {
-        math_utils::normalize_absolute_angle(*self.heading.read().unwrap() + self.head_heading)
+        let heading = self.heading();
+        let head_heading = self.head_heading();
+        math_utils::normalize_absolute_angle(heading + head_heading)
     }
 
     pub fn effective_arms_heading(&self) -> f32 {
-        math_utils::normalize_absolute_angle(*self.heading.read().unwrap() + self.arms_heading)
+        let heading = *self.heading.read().unwrap();
+        let arms_heading = *self.arms_heading.read().unwrap();
+        math_utils::normalize_absolute_angle(heading + arms_heading)
     }
 
     pub fn alive(&self) -> bool {
-        self.hp > 0.0
+        self.hp() > 0.0
     }
 }
 
@@ -348,9 +370,23 @@ fn register_lua_library(player: &Player, lua_player: &LuaImpl) -> LuaResult<()> 
     let y = lua.create_function(move |_, _: ()| Ok(pos_ref.read().unwrap().y))?;
     me.set("y", y)?;
 
+    let hp_ref = Arc::clone(&player.hp);
+    let hp = lua.create_function(move |_, _: ()| Ok(*hp_ref.read().unwrap()))?;
+    me.set("hp", hp)?;
+
     let heading_ref = Arc::clone(&player.heading);
     let heading = lua.create_function(move |_, _: ()| Ok(*heading_ref.read().unwrap()))?;
     me.set("heading", heading)?;
+
+    let head_heading_ref = Arc::clone(&player.head_heading);
+    let head_heading =
+        lua.create_function(move |_, _: ()| Ok(*head_heading_ref.read().unwrap()))?;
+    me.set("head_heading", head_heading)?;
+
+    let arms_heading_ref = Arc::clone(&player.arms_heading);
+    let arms_heading =
+        lua.create_function(move |_, _: ()| Ok(*arms_heading_ref.read().unwrap()))?;
+    me.set("arms_heading", arms_heading)?;
 
     let move_cmd = lua.create_function(|_, dist: f32| {
         Ok(PlayerCommand::Move(MovementDirection::Forward, dist))
@@ -850,8 +886,8 @@ fn advance_game_state(game: &mut Game, game_events: &[GameEvent]) {
             GameEvent::PlayerHeadTurned(id, delta) => {
                 {
                     let player = game.player(*id);
-                    let heading = clamp_turn_angle(player.head_heading + *delta);
-                    player.head_heading = heading;
+                    let heading = clamp_turn_angle(player.head_heading() + *delta);
+                    *player.head_heading.write().unwrap() = heading;
                 }
                 let lua_impl = game.lua_impl(*id);
                 lua_impl.intent.turn_head_angle =
@@ -864,8 +900,8 @@ fn advance_game_state(game: &mut Game, game_events: &[GameEvent]) {
             GameEvent::PlayerArmsTurned(id, delta) => {
                 {
                     let player = game.player(*id);
-                    let heading = clamp_turn_angle(player.arms_heading + *delta);
-                    player.arms_heading = heading;
+                    let heading = clamp_turn_angle(player.arms_heading() + *delta);
+                    *player.arms_heading.write().unwrap() = heading;
                 }
                 let lua_impl = game.lua_impl(*id);
                 lua_impl.intent.turn_arms_angle =
@@ -884,7 +920,7 @@ fn advance_game_state(game: &mut Game, game_events: &[GameEvent]) {
                 {
                     game.attacks.remove(index);
                 }
-                game.player(*victim_id).hp -= ATTACK_DAMAGE;
+                *game.player(*victim_id).hp.write().unwrap() -= ATTACK_DAMAGE;
             }
             GameEvent::AttackAdvanced(id, pos) => {
                 let attack = game
