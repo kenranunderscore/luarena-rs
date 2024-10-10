@@ -1,7 +1,8 @@
 use raylib::prelude::*;
 
-use crate::game::{Attack, Player};
-use crate::{math_utils, settings::*, Game};
+use crate::game::{GameData, PlayerData};
+use crate::math_utils::Point;
+use crate::{math_utils, settings::*};
 
 const VISION_COLOR: Color = Color {
     r: 150,
@@ -28,13 +29,13 @@ fn player_vision(d: &mut raylib::drawing::RaylibDrawHandle, x: i32, y: i32, head
     let side_len = (WIDTH + HEIGHT) as f32; // don't know whether this is smart or dumb...
     let origin = Vector2::new(x as f32, y as f32);
     let left_angle = math_utils::normalize_abs_angle(heading - vision_delta);
-    let (lx, ly) = math_utils::line_endpoint(origin.x, origin.y, side_len, left_angle);
+    let left = math_utils::line_endpoint(origin.x, origin.y, side_len, left_angle);
     let right_angle = math_utils::normalize_abs_angle(heading + vision_delta);
-    let (rx, ry) = math_utils::line_endpoint(origin.x, origin.y, side_len, right_angle);
+    let right = math_utils::line_endpoint(origin.x, origin.y, side_len, right_angle);
     d.draw_triangle(
-        Vector2::new(lx, ly),
+        Vector2::new(left.x, left.y),
         origin,
-        Vector2::new(rx, ry),
+        Vector2::new(right.x, right.y),
         VISION_COLOR,
     );
 }
@@ -82,26 +83,30 @@ fn to_raylib_color(color: &crate::game::Color) -> Color {
 
 fn players<'a>(
     d: &mut raylib::drawing::RaylibDrawHandle,
-    players: impl Iterator<Item = &'a Player>,
+    players: impl Iterator<Item = &'a PlayerData>,
 ) {
     for player in players {
-        let pos = player.pos.borrow();
-        let player_color = to_raylib_color(&player.meta.color);
-        player_vision(d, pos.x, pos.y, player.effective_head_heading());
-        player_arms(d, pos.x, pos.y, player.effective_arms_heading());
-        heading(d, pos.x, pos.y, player.heading, player_color);
-        d.draw_circle(pos.x, pos.y, PLAYER_RADIUS as f32, player_color);
+        let player_color = to_raylib_color(&player.color);
+        player_vision(d, player.x, player.y, player.head_heading);
+        player_arms(d, player.x, player.y, player.arms_heading);
+        heading(d, player.x, player.y, player.heading, player_color);
+        d.draw_circle(player.x, player.y, PLAYER_RADIUS as f32, player_color);
     }
 }
 
-fn attacks(d: &mut raylib::drawing::RaylibDrawHandle, attacks: &[Attack]) {
+fn attacks(d: &mut raylib::drawing::RaylibDrawHandle, attacks: &[Point]) {
     for attack in attacks {
         let attack_color = Color::RED;
-        d.draw_circle(attack.pos.x, attack.pos.y, ATTACK_RADIUS, attack_color);
+        d.draw_circle(
+            attack.x.round() as i32,
+            attack.y.round() as i32,
+            ATTACK_RADIUS,
+            attack_color,
+        );
     }
 }
 
-pub fn game(d: &mut raylib::drawing::RaylibDrawHandle, state: &Game) {
-    players(d, state.living_players());
-    attacks(d, &state.attacks);
+pub fn game(d: &mut raylib::drawing::RaylibDrawHandle, game_data: &GameData) {
+    players(d, game_data.players.iter());
+    attacks(d, &game_data.attacks);
 }

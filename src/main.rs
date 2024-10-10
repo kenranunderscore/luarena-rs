@@ -1,3 +1,8 @@
+use std::{
+    sync::{atomic::AtomicBool, mpsc, Arc},
+    time::Duration,
+};
+
 use mlua::prelude::*;
 use raylib::prelude::*;
 
@@ -10,27 +15,44 @@ use game::*;
 use settings::*;
 
 fn main() -> LuaResult<()> {
-    // FIXME: IDs
-    let player1 = Player::new("players/kai", 1, 70, 450)?;
-    let player2 = Player::new("players/lloyd", 2, 700, 440)?;
+    let (game_writer, game_reader) = mpsc::channel();
+    let cancel = Arc::new(AtomicBool::new(false));
+    let cancel_ref = cancel.clone();
 
-    let mut state = Game::new();
-    state.players = vec![player1, player2];
     let (mut rl, thread) = raylib::init()
         .size(WIDTH, HEIGHT)
         .title("hello world")
         .msaa_4x()
         .build();
-    let mut event_manager = EventManager::new();
 
-    rl.set_target_fps(200);
-    while !rl.window_should_close() {
+    let game_thread = std::thread::spawn(move || -> LuaResult<()> {
+        let mut game = Game::new();
+        game.add_lua_player("players/kai")?;
+        game.add_lua_player("players/lloyd")?;
+
+        let delay = Duration::from_millis(7);
+        run_game(&mut game, &delay, &game_writer, &cancel_ref)
+    });
+
+    rl.set_target_fps(60);
+    let mut latest_data = None;
+    while !rl.window_should_close() && !game_thread.is_finished() {
         let mut d = rl.begin_drawing(&thread);
         d.draw_fps(5, 5);
+
+        while let Ok(data) = game_reader.try_recv() {
+            latest_data = Some(data);
+        }
         d.clear_background(raylib::prelude::Color::BLACK);
-        step(&mut state, &mut event_manager)?;
-        render::game(&mut d, &state);
-        state.tick += 1;
+        if let Some(data) = &latest_data {
+            render::game(&mut d, &data);
+        }
     }
+
+    if game_thread.is_finished() {
+        return game_thread.join().unwrap();
+    }
+
+    cancel.store(true, std::sync::atomic::Ordering::Relaxed);
     Ok(())
 }

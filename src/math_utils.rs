@@ -1,29 +1,59 @@
-use std::f32::consts::PI;
+use rand::{
+    distributions::{Distribution, Standard},
+    Rng,
+};
 
 pub const HALF_PI: f32 = PI / 2.0;
 pub const TWO_PI: f32 = PI * 2.0;
+pub const PI: f32 = std::f32::consts::PI;
 
 #[derive(Clone, Debug)]
 pub struct Point {
-    pub x: i32,
-    pub y: i32,
+    pub x: f32,
+    pub y: f32,
 }
 
 impl Point {
-    pub fn dist_sqr(&self, p: &Point) -> i32 {
-        (self.x - p.x).pow(2) + (self.y - p.y).pow(2)
+    pub fn dist_sqr(&self, p: &Point) -> f32 {
+        let dx = self.x - p.x;
+        let dy = self.y - p.y;
+        dx * dx + dy * dy
     }
 
     pub fn dist(&self, p: &Point) -> f32 {
         let d = self.dist_sqr(p) as f32;
         d.sqrt()
     }
+
+    pub fn add(&self, p: &Point) -> Self {
+        Self {
+            x: self.x + p.x,
+            y: self.y + p.y,
+        }
+    }
+
+    pub fn zero() -> Self {
+        Self { x: 0.0, y: 0.0 }
+    }
 }
 
-pub fn line_endpoint(x: f32, y: f32, len: f32, angle: f32) -> (f32, f32) {
+impl Distribution<Point> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Point {
+        let (rand_x, rand_y) = rng.gen();
+        Point {
+            x: rand_x,
+            y: rand_y,
+        }
+    }
+}
+
+pub fn line_endpoint(x: f32, y: f32, len: f32, angle: f32) -> Point {
     let dx = angle.sin() * len;
     let dy = -angle.cos() * len;
-    (x + dx, y + dy)
+    Point {
+        x: x + dx,
+        y: y + dy,
+    }
 }
 
 pub fn clamp(x: f32, lower: f32, upper: f32) -> f32 {
