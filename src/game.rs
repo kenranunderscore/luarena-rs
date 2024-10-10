@@ -295,8 +295,7 @@ impl Player {
         self.head_heading = 0.0;
         self.arms_heading = 0.0;
         let mut pos = self.pos.write().unwrap();
-        pos.x = new_pos.x;
-        pos.y = new_pos.y;
+        pos.set_to(&new_pos);
     }
 
     pub fn effective_head_heading(&self) -> f32 {
@@ -869,8 +868,7 @@ fn advance_game_state(game: &mut Game, game_events: &[GameEvent]) {
                     .iter_mut()
                     .find(|attack| attack.id == *id)
                     .expect("attack {id} not found");
-                attack.pos.x = pos.x;
-                attack.pos.y = pos.y;
+                attack.pos.set_to(&pos);
             }
             GameEvent::AttackMissed(id) => {
                 if let Some(index) = game.attacks.iter().position(|attack| attack.id == *id) {

@@ -32,6 +32,11 @@ impl Point {
         }
     }
 
+    pub fn set_to(&mut self, p: &Point) {
+        self.x = p.x;
+        self.y = p.y;
+    }
+
     pub fn zero() -> Self {
         Self { x: 0.0, y: 0.0 }
     }
@@ -158,6 +163,26 @@ mod tests {
         fn angle_between_pi_and_2pi() {
             let res = normalize_relative_angle(3.0 / 2.0 * PI);
             assert_float_eq!(res, -PI / 2.0, abs <= 0.0001);
+        }
+    }
+
+    mod point {
+        use super::*;
+
+        #[test]
+        fn add() {
+            let p = Point { x: 13.0, y: -5.0 };
+            let res = p.add(&Point { x: -2.0, y: 4.0 });
+            assert_float_eq!(res.x, 11.0, abs <= 0.0001);
+            assert_float_eq!(res.y, -1.0, abs <= 0.0001);
+        }
+
+        #[test]
+        fn set_to() {
+            let mut p = Point::zero();
+            p.set_to(&Point { x: 3.1, y: -2.5 });
+            assert_float_eq!(p.x, 3.1, abs <= 0.0001);
+            assert_float_eq!(p.y, -2.5, abs <= 0.0001);
         }
     }
 }
