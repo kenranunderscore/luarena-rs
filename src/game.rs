@@ -234,6 +234,11 @@ impl LuaImpl {
             PlayerEvent::EnemySeen(name, pos) => {
                 self.call_event_handler("on_enemy_seen", (name.to_string(), pos.x, pos.y))
             }
+            PlayerEvent::HitBy(id) => self.call_event_handler("on_hit_by", *id),
+            PlayerEvent::AttackHit(id, pos) => {
+                self.call_event_handler("on_attack_hit", (*id, pos.x, pos.y))
+            }
+            PlayerEvent::Death => self.call_event_handler("on_death", ()),
         }
     }
 }
@@ -586,6 +591,9 @@ pub enum PlayerEvent {
     Tick(i32),
     RoundStarted(i32),
     EnemySeen(String, Point),
+    Death,
+    HitBy(u8),
+    AttackHit(u8, Point),
 }
 
 fn game_events_to_player_events(player: &Player, game_events: &[GameEvent]) -> Vec<PlayerEvent> {
@@ -610,7 +618,18 @@ fn game_events_to_player_events(player: &Player, game_events: &[GameEvent]) -> V
         GameEvent::PlayerPositionUpdated(_, _) => acc,
         GameEvent::PlayerHeadTurned(_, _) => acc,
         GameEvent::PlayerArmsTurned(_, _) => acc,
-        GameEvent::Hit(_, _, _, _) => acc,
+        GameEvent::Hit(_, owner_id, victim_id, pos) => {
+            if player.id == *victim_id {
+                // FIXME: don't use id
+                acc.push(PlayerEvent::HitBy(*owner_id));
+                if !player.alive() {
+                    acc.push(PlayerEvent::Death);
+                }
+            } else if player.id == *owner_id {
+                acc.push(PlayerEvent::AttackHit(*victim_id, pos.clone()));
+            }
+            acc
+        }
         GameEvent::AttackAdvanced(_, _) => acc,
         GameEvent::AttackMissed(_) => acc,
         GameEvent::AttackCreated(_, _) => acc,

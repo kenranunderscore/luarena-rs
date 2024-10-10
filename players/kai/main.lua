@@ -10,6 +10,21 @@ function m.on_tick(n)
 	-- end
 end
 
+function m.on_round_started(n)
+	print("on round started: " .. n)
+	return {}
+end
+
+function m.on_death()
+	print("I'm dead")
+	return {}
+end
+
+function m.on_attack_hit(name, x, y)
+	print("Gotcha, " .. name)
+    return {}
+end
+
 function normalize_relative_angle(angle)
 	while angle < -math.pi do
 		angle = angle + 2 * math.pi
@@ -21,13 +36,10 @@ function normalize_relative_angle(angle)
 end
 
 function m.on_enemy_seen(name, x, y)
-	print("seeing " .. name)
 	angle = math.atan2(y - me.y(), x - me.x()) + math.pi / 2
 	a = normalize_relative_angle(angle - me.heading())
-    print("angle: " .. a)
 	res = {}
 	if math.abs(a) < 0.05 then
-		print("   shooting now")
 		table.insert(res, me.attack())
 	end
 	return res
