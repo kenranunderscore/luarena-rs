@@ -525,6 +525,7 @@ impl Game {
         self.tick = 0;
         self.round = round;
         self.round_state = RoundState::Ongoing;
+        self.attacks = vec![];
 
         let min = PLAYER_RADIUS + 5.0;
         let max_x = WIDTH as f32 - PLAYER_RADIUS - 5.0;
