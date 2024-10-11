@@ -21,19 +21,9 @@ function m.on_attack_hit(name, x, y)
 	print("Gotcha, " .. name)
 end
 
-function normalize_relative_angle(angle)
-	while angle < -math.pi do
-		angle = angle + 2 * math.pi
-	end
-	while angle >= math.pi do
-		angle = angle - 2 * math.pi
-	end
-	return angle
-end
-
 function m.on_enemy_seen(name, x, y)
 	angle = math.atan2(y - me.y(), x - me.x()) + math.pi / 2
-	a = normalize_relative_angle(angle - me.heading())
+	a = utils.normalize_relative_angle(angle - me.heading())
 	res = { me.turn(a) }
 	if me.turn_remaining() < 0.05 then
 		table.insert(res, me.attack())
