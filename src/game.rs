@@ -691,42 +691,42 @@ pub enum PlayerEvent {
 
 fn game_events_to_player_events(player: &Player, game_events: &[GameEvent]) -> Vec<PlayerEvent> {
     // FIXME: when to generate enemy_seen events?
-    game_events.iter().fold(Vec::new(), |mut acc, e| match e {
-        GameEvent::Tick(n) => {
-            acc.push(PlayerEvent::Tick(*n));
-            acc
-        }
-        GameEvent::RoundStarted(n) => {
-            acc.push(PlayerEvent::RoundStarted(*n));
-            acc
-        }
-        GameEvent::RoundOver(_) => acc,
-        GameEvent::EnemySeen(id, target, pos) => {
-            if *id == player.id {
-                acc.push(PlayerEvent::EnemySeen(target.clone(), pos.clone()));
+    let mut acc = Vec::new();
+    for event in game_events.iter() {
+        match event {
+            GameEvent::Tick(n) => {
+                acc.push(PlayerEvent::Tick(*n));
             }
-            acc
-        }
-        GameEvent::PlayerTurned(_, _) => acc,
-        GameEvent::PlayerPositionUpdated(_, _) => acc,
-        GameEvent::PlayerHeadTurned(_, _) => acc,
-        GameEvent::PlayerArmsTurned(_, _) => acc,
-        GameEvent::Hit(_, owner_id, victim_id, pos) => {
-            if player.id == *victim_id {
-                // FIXME: don't use id
-                acc.push(PlayerEvent::HitBy(*owner_id));
-                if !player.alive() {
-                    acc.push(PlayerEvent::Death);
+            GameEvent::RoundStarted(n) => {
+                acc.push(PlayerEvent::RoundStarted(*n));
+            }
+            GameEvent::RoundOver(_) => {}
+            GameEvent::EnemySeen(id, target, pos) => {
+                if *id == player.id {
+                    acc.push(PlayerEvent::EnemySeen(target.clone(), pos.clone()));
                 }
-            } else if player.id == *owner_id {
-                acc.push(PlayerEvent::AttackHit(*victim_id, pos.clone()));
             }
-            acc
+            GameEvent::PlayerTurned(_, _) => {}
+            GameEvent::PlayerPositionUpdated(_, _) => {}
+            GameEvent::PlayerHeadTurned(_, _) => {}
+            GameEvent::PlayerArmsTurned(_, _) => {}
+            GameEvent::Hit(_, owner_id, victim_id, pos) => {
+                if player.id == *victim_id {
+                    // FIXME: don't use id
+                    acc.push(PlayerEvent::HitBy(*owner_id));
+                    if !player.alive() {
+                        acc.push(PlayerEvent::Death);
+                    }
+                } else if player.id == *owner_id {
+                    acc.push(PlayerEvent::AttackHit(*victim_id, pos.clone()));
+                }
+            }
+            GameEvent::AttackAdvanced(_, _) => {}
+            GameEvent::AttackMissed(_) => {}
+            GameEvent::AttackCreated(_, _) => {}
         }
-        GameEvent::AttackAdvanced(_, _) => acc,
-        GameEvent::AttackMissed(_) => acc,
-        GameEvent::AttackCreated(_, _) => acc,
-    })
+    };
+    acc
 }
 
 fn can_spot(
