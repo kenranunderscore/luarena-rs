@@ -215,7 +215,7 @@ impl PlayerMeta {
 pub struct LuaImpl {
     lua: Lua,
     key: LuaRegistryKey,
-    intent: PlayerIntent,
+    intent: ReadableFromLua<PlayerIntent>,
 }
 
 impl LuaImpl {
@@ -357,7 +357,13 @@ impl Player {
     }
 }
 
-fn register_player_state_accessors(player: &Player, t: &mut LuaTable, lua: &Lua) -> LuaResult<()> {
+fn register_player_state_accessors(
+    player: &Player,
+    t: &mut LuaTable,
+    lua_impl: &LuaImpl,
+) -> LuaResult<()> {
+    let lua = &lua_impl.lua;
+
     let pos_ref = Arc::clone(&player.pos);
     let x = lua.create_function(move |_, _: ()| Ok(pos_ref.read().unwrap().x))?;
     t.set("x", x)?;
@@ -384,6 +390,24 @@ fn register_player_state_accessors(player: &Player, t: &mut LuaTable, lua: &Lua)
     let arms_heading =
         lua.create_function(move |_, _: ()| Ok(*arms_heading_ref.read().unwrap()))?;
     t.set("arms_heading", arms_heading)?;
+
+    let intent_ref = Arc::clone(&lua_impl.intent);
+    t.set(
+        "turn_remaining",
+        lua.create_function(move |_, _: ()| Ok(intent_ref.read().unwrap().turn_angle))?,
+    )?;
+
+    let intent_ref = Arc::clone(&lua_impl.intent);
+    t.set(
+        "head_turn_remaining",
+        lua.create_function(move |_, _: ()| Ok(intent_ref.read().unwrap().turn_head_angle))?,
+    )?;
+
+    let intent_ref = Arc::clone(&lua_impl.intent);
+    t.set(
+        "arms_turn_remaining",
+        lua.create_function(move |_, _: ()| Ok(intent_ref.read().unwrap().turn_arms_angle))?,
+    )?;
 
     Ok(())
 }
@@ -445,10 +469,10 @@ fn register_utils(lua: &Lua) -> LuaResult<()> {
     Ok(())
 }
 
-fn register_lua_library(player: &Player, lua_player: &LuaImpl) -> LuaResult<()> {
-    let lua = &lua_player.lua;
+fn register_lua_library(player: &Player, lua_impl: &LuaImpl) -> LuaResult<()> {
+    let lua = &lua_impl.lua;
     let mut me = lua.create_table()?;
-    register_player_state_accessors(player, &mut me, lua)?;
+    register_player_state_accessors(player, &mut me, &lua_impl)?;
     register_player_commands(&mut me, lua)?;
     lua.globals().set("me", me)?;
     register_utils(lua)?;
@@ -611,11 +635,15 @@ fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
     let mut next_positions: HashMap<u8, (Delta, Point)> = HashMap::new();
     for (index, player) in game.players.iter().enumerate() {
         let lua_impl = &game.lua_impls[index];
-        let delta = math_utils::clamp(lua_impl.intent.turn_angle, -MAX_TURN_RATE, MAX_TURN_RATE);
+        let delta = math_utils::clamp(
+            lua_impl.intent.read().unwrap().turn_angle,
+            -MAX_TURN_RATE,
+            MAX_TURN_RATE,
+        );
         event_manager.record(GameEvent::PlayerTurned(player.id, delta));
         let heading = math_utils::normalize_absolute_angle(*player.heading.read().unwrap() + delta);
-        let velocity = f32::min(lua_impl.intent.distance, MAX_VELOCITY);
-        let dir_heading = match lua_impl.intent.direction {
+        let velocity = f32::min(lua_impl.intent.read().unwrap().distance, MAX_VELOCITY);
+        let dir_heading = match lua_impl.intent.read().unwrap().direction {
             MovementDirection::Forward => 0.0,
             MovementDirection::Backward => math_utils::PI,
             MovementDirection::Left => -HALF_PI,
@@ -659,7 +687,7 @@ fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
 
 fn transition_heads(player: &Player, lua_impl: &LuaImpl, event_manager: &mut EventManager) {
     let delta = math_utils::clamp(
-        lua_impl.intent.turn_head_angle,
+        lua_impl.intent.read().unwrap().turn_head_angle,
         -MAX_HEAD_TURN_RATE,
         MAX_HEAD_TURN_RATE,
     );
@@ -668,7 +696,7 @@ fn transition_heads(player: &Player, lua_impl: &LuaImpl, event_manager: &mut Eve
 
 fn transition_arms(player: &Player, lua_impl: &LuaImpl, event_manager: &mut EventManager) {
     let delta = math_utils::clamp(
-        lua_impl.intent.turn_arms_angle,
+        lua_impl.intent.read().unwrap().turn_arms_angle,
         -MAX_ARMS_TURN_RATE,
         MAX_ARMS_TURN_RATE,
     );
@@ -725,7 +753,7 @@ fn game_events_to_player_events(player: &Player, game_events: &[GameEvent]) -> V
             GameEvent::AttackMissed(_) => {}
             GameEvent::AttackCreated(_, _) => {}
         }
-    };
+    }
     acc
 }
 
@@ -798,8 +826,8 @@ fn determine_vision_events(game: &Game, event_manager: &mut EventManager) {
 fn create_attacks(game: &mut Game, event_manager: &mut EventManager) {
     for (index, player) in game.players.iter_mut().enumerate() {
         let lua_impl = &mut game.lua_impls[index];
-        if lua_impl.intent.attack {
-            lua_impl.intent.attack = false;
+        if lua_impl.intent.read().unwrap().attack {
+            lua_impl.intent.write().unwrap().attack = false;
             let attack = Attack {
                 id: game.attack_ids.next(),
                 owner: player.id,
@@ -892,16 +920,17 @@ fn advance_game_state(game: &mut Game, game_events: &[GameEvent]) {
                 }
             }
             GameEvent::PlayerPositionUpdated(id, delta) => {
-                let distance;
+                let d;
                 {
                     let player = game.player(*id);
                     let mut pos = player.pos.write().unwrap();
-                    distance = pos.dist(&Point::zero()); // TODO: length of a Vec2
+                    d = pos.dist(&Point::zero()); // TODO: length of a Vec2
                     pos.x += delta.value.x;
                     pos.y += delta.value.y;
                 }
                 let lua_impl = game.lua_impl(*id);
-                lua_impl.intent.distance = f32::max(lua_impl.intent.distance - distance, 0.0)
+                let distance = lua_impl.intent.read().unwrap().distance;
+                lua_impl.intent.write().unwrap().distance = f32::max(distance - d, 0.0);
             }
             GameEvent::PlayerTurned(id, delta) => {
                 {
@@ -911,10 +940,11 @@ fn advance_game_state(game: &mut Game, game_events: &[GameEvent]) {
                         math_utils::normalize_absolute_angle(heading + *delta);
                 }
                 let lua_impl = game.lua_impl(*id);
-                lua_impl.intent.turn_angle = if lua_impl.intent.turn_angle.abs() < MAX_TURN_RATE {
+                let turn_angle = lua_impl.intent.read().unwrap().turn_angle;
+                lua_impl.intent.write().unwrap().turn_angle = if turn_angle.abs() < MAX_TURN_RATE {
                     0.0
                 } else {
-                    lua_impl.intent.turn_angle - *delta
+                    turn_angle - *delta
                 };
             }
             GameEvent::PlayerHeadTurned(id, delta) => {
@@ -924,11 +954,12 @@ fn advance_game_state(game: &mut Game, game_events: &[GameEvent]) {
                     *player.head_heading.write().unwrap() = heading;
                 }
                 let lua_impl = game.lua_impl(*id);
-                lua_impl.intent.turn_head_angle =
-                    if lua_impl.intent.turn_head_angle.abs() < MAX_HEAD_TURN_RATE {
+                let turn_head_angle = lua_impl.intent.read().unwrap().turn_head_angle;
+                lua_impl.intent.write().unwrap().turn_head_angle =
+                    if turn_head_angle.abs() < MAX_HEAD_TURN_RATE {
                         0.0
                     } else {
-                        lua_impl.intent.turn_head_angle - *delta
+                        turn_head_angle - *delta
                     };
             }
             GameEvent::PlayerArmsTurned(id, delta) => {
@@ -938,11 +969,12 @@ fn advance_game_state(game: &mut Game, game_events: &[GameEvent]) {
                     *player.arms_heading.write().unwrap() = heading;
                 }
                 let lua_impl = game.lua_impl(*id);
-                lua_impl.intent.turn_arms_angle =
-                    if lua_impl.intent.turn_arms_angle.abs() < MAX_ARMS_TURN_RATE {
+                let turn_arms_angle = lua_impl.intent.read().unwrap().turn_arms_angle;
+                lua_impl.intent.write().unwrap().turn_arms_angle =
+                    if turn_arms_angle.abs() < MAX_ARMS_TURN_RATE {
                         0.0
                     } else {
-                        lua_impl.intent.turn_arms_angle - *delta
+                        turn_arms_angle - *delta
                     };
             }
             GameEvent::EnemySeen(_, _, _) => {}
@@ -1037,13 +1069,17 @@ fn run_lua_players(game: &mut Game, events: &[GameEvent]) -> LuaResult<()> {
         reduce_commands(&mut commands);
         for cmd in commands.iter() {
             match cmd {
-                PlayerCommand::Attack => lua_impl.intent.attack = true,
-                PlayerCommand::Turn(angle) => lua_impl.intent.turn_angle = *angle,
-                PlayerCommand::TurnHead(angle) => lua_impl.intent.turn_head_angle = *angle,
-                PlayerCommand::TurnArms(angle) => lua_impl.intent.turn_arms_angle = *angle,
+                PlayerCommand::Attack => lua_impl.intent.write().unwrap().attack = true,
+                PlayerCommand::Turn(angle) => lua_impl.intent.write().unwrap().turn_angle = *angle,
+                PlayerCommand::TurnHead(angle) => {
+                    lua_impl.intent.write().unwrap().turn_head_angle = *angle
+                }
+                PlayerCommand::TurnArms(angle) => {
+                    lua_impl.intent.write().unwrap().turn_arms_angle = *angle
+                }
                 PlayerCommand::Move(dir, dist) => {
-                    lua_impl.intent.direction = dir.clone();
-                    lua_impl.intent.distance = *dist;
+                    lua_impl.intent.write().unwrap().direction = dir.clone();
+                    lua_impl.intent.write().unwrap().distance = *dist;
                 }
             }
         }
