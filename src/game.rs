@@ -323,23 +323,40 @@ impl Player {
     // TODO: also randomize headings?
     pub fn reset(&mut self, next_pos: Point) {
         *self.hp.write().unwrap() = INITIAL_HP;
-        *self.heading.write().unwrap() = 0.0;
-        *self.head_heading.write().unwrap() = 0.0;
-        *self.arms_heading.write().unwrap() = 0.0;
+        self.set_heading(0.0);
+        self.set_head_heading(0.0);
+        self.set_arms_heading(0.0);
         let mut pos = self.pos.write().unwrap();
         pos.set_to(&next_pos);
     }
 
+    // This looks like Java, and I feel like there has to be a better way, but
+    // in this case I'm fine with hiding the `RwLock` usage where possible. It
+    // might even come in handy if I find a better way to model and share the
+    // state with Lua.
+
     pub fn heading(&self) -> f32 {
         *self.heading.read().unwrap()
+    }
+
+    pub fn set_heading(&mut self, heading: f32) {
+        *self.heading.write().unwrap() = heading;
     }
 
     pub fn head_heading(&self) -> f32 {
         *self.head_heading.read().unwrap()
     }
 
+    pub fn set_head_heading(&mut self, heading: f32) {
+        *self.head_heading.write().unwrap() = heading;
+    }
+
     pub fn arms_heading(&self) -> f32 {
         *self.arms_heading.read().unwrap()
+    }
+
+    pub fn set_arms_heading(&mut self, heading: f32) {
+        *self.arms_heading.write().unwrap() = heading;
     }
 
     pub fn hp(&self) -> f32 {
@@ -352,6 +369,10 @@ impl Player {
 
     pub fn attack_cooldown(&self) -> u8 {
         *self.attack_cooldown.read().unwrap()
+    }
+
+    pub fn set_attack_cooldown(&mut self, cd: u8) {
+        *self.attack_cooldown.write().unwrap() = cd;
     }
 
     pub fn effective_head_heading(&self) -> f32 {
@@ -909,7 +930,7 @@ fn advance_game_state(game: &mut Game, game_events: &[GameEvent]) {
                 for player in game.players.iter_mut() {
                     let cd = player.attack_cooldown();
                     if cd > 0 {
-                        *player.attack_cooldown.write().unwrap() = cd - 1;
+                        player.set_attack_cooldown(cd - 1);
                     }
                 }
             }
@@ -935,9 +956,8 @@ fn advance_game_state(game: &mut Game, game_events: &[GameEvent]) {
             }
             GameEvent::PlayerTurned(id, delta) => {
                 let player = game.player(*id);
-                let heading = *player.heading.read().unwrap();
-                *player.heading.write().unwrap() =
-                    math_utils::normalize_absolute_angle(heading + *delta);
+                let heading = player.heading() + *delta;
+                player.set_heading(math_utils::normalize_absolute_angle(heading));
                 let lua_impl = game.lua_impl(*id);
                 let turn_angle = lua_impl.intent().turn_angle;
                 lua_impl.intent.write().unwrap().turn_angle = if turn_angle.abs() < MAX_TURN_RATE {
@@ -949,7 +969,7 @@ fn advance_game_state(game: &mut Game, game_events: &[GameEvent]) {
             GameEvent::PlayerHeadTurned(id, delta) => {
                 let player = game.player(*id);
                 let heading = player.head_heading() + *delta;
-                *player.head_heading.write().unwrap() = heading;
+                player.set_head_heading(heading);
                 let lua_impl = game.lua_impl(*id);
                 let intended = lua_impl.intent().turn_head_angle;
                 lua_impl.intent.write().unwrap().turn_head_angle =
@@ -964,7 +984,7 @@ fn advance_game_state(game: &mut Game, game_events: &[GameEvent]) {
             GameEvent::PlayerArmsTurned(id, delta) => {
                 let player = game.player(*id);
                 let heading = clamp_turn_angle(player.arms_heading() + *delta);
-                *player.arms_heading.write().unwrap() = heading;
+                player.set_arms_heading(heading);
                 let lua_impl = game.lua_impl(*id);
                 let intended = lua_impl.intent().turn_arms_angle;
                 lua_impl.intent.write().unwrap().turn_arms_angle =
@@ -996,7 +1016,7 @@ fn advance_game_state(game: &mut Game, game_events: &[GameEvent]) {
             GameEvent::AttackCreated(owner, attack) => {
                 game.attacks.push(attack.clone());
                 let player = game.player(*owner);
-                *player.attack_cooldown.write().unwrap() = ATTACK_COOLDOWN;
+                player.set_attack_cooldown(ATTACK_COOLDOWN);
                 let lua_impl = game.lua_impl(*owner);
                 lua_impl.intent.write().unwrap().attack = false;
             }
