@@ -734,7 +734,9 @@ fn transition_arms(player: &Player, lua_impl: &LuaImpl, event_manager: &mut Even
         -MAX_ARMS_TURN_RATE,
         MAX_ARMS_TURN_RATE,
     );
-    event_manager.record(GameEvent::PlayerArmsTurned(player.id, delta));
+    let current_heading = player.arms_heading();
+    let effective_delta = clamp_turn_angle(current_heading + delta) - current_heading;
+    event_manager.record(GameEvent::PlayerArmsTurned(player.id, effective_delta));
 }
 
 fn players_collide(p: &Point, q: &Point) -> bool {
@@ -957,6 +959,8 @@ fn advance_game_state(game: &mut Game, game_events: &[GameEvent]) {
                 let lua_impl = game.lua_impl(*id);
                 let intended = lua_impl.intent().turn_head_angle;
                 lua_impl.intent.write().unwrap().turn_head_angle =
+                    // FIXME: (here and elsewhere): we don't need this if we
+                    // stop using float equality checks I think
                     if intended.abs() < MAX_HEAD_TURN_RATE {
                         0.0
                     } else {
@@ -964,18 +968,16 @@ fn advance_game_state(game: &mut Game, game_events: &[GameEvent]) {
                     };
             }
             GameEvent::PlayerArmsTurned(id, delta) => {
-                {
-                    let player = game.player(*id);
-                    let heading = clamp_turn_angle(player.arms_heading() + *delta);
-                    *player.arms_heading.write().unwrap() = heading;
-                }
+                let player = game.player(*id);
+                let heading = clamp_turn_angle(player.arms_heading() + *delta);
+                *player.arms_heading.write().unwrap() = heading;
                 let lua_impl = game.lua_impl(*id);
-                let turn_arms_angle = lua_impl.intent().turn_arms_angle;
+                let intended = lua_impl.intent().turn_arms_angle;
                 lua_impl.intent.write().unwrap().turn_arms_angle =
-                    if turn_arms_angle.abs() < MAX_ARMS_TURN_RATE {
+                    if intended.abs() < MAX_ARMS_TURN_RATE {
                         0.0
                     } else {
-                        turn_arms_angle - *delta
+                        intended - *delta
                     };
             }
             GameEvent::Hit(attack_id, _, victim_id, _) => {
