@@ -9,6 +9,7 @@ pub const ANGLE_OF_ACTION: f32 = HALF_PI;
 pub const PLAYER_RADIUS: f32 = 25.0;
 pub const ATTACK_RADIUS: f32 = 4.0;
 pub const ATTACK_DAMAGE: f32 = 10.0;
+pub const ATTACK_COOLDOWN: u8 = 35;
 pub const WIDTH: i32 = 1600;
 pub const HEIGHT: i32 = 1200;
 pub const MAX_VELOCITY: f32 = 1.0;

@@ -299,6 +299,7 @@ pub struct Player {
     pub heading: ReadableFromLua<f32>,
     pub head_heading: ReadableFromLua<f32>,
     pub arms_heading: ReadableFromLua<f32>,
+    pub attack_cooldown: ReadableFromLua<u8>,
 }
 
 impl Player {
@@ -311,6 +312,7 @@ impl Player {
             heading: Arc::new(RwLock::new(0.0)),
             head_heading: Arc::new(RwLock::new(0.0)),
             arms_heading: Arc::new(RwLock::new(0.0)),
+            attack_cooldown: Arc::new(RwLock::new(0)),
         }
     }
 
@@ -364,49 +366,66 @@ fn register_player_state_accessors(
 ) -> LuaResult<()> {
     let lua = &lua_impl.lua;
 
-    let pos_ref = Arc::clone(&player.pos);
-    let x = lua.create_function(move |_, _: ()| Ok(pos_ref.read().unwrap().x))?;
-    t.set("x", x)?;
+    // Each accessor needs its own reference to the data, that's why we need to
+    // clone the Arcs multiple times
+    let r = Arc::clone(&player.pos);
+    t.set(
+        "x",
+        lua.create_function(move |_, _: ()| Ok(r.read().unwrap().x))?,
+    )?;
 
-    // need to clone the ref again, as we move to make the closure work
-    let pos_ref = Arc::clone(&player.pos);
-    let y = lua.create_function(move |_, _: ()| Ok(pos_ref.read().unwrap().y))?;
-    t.set("y", y)?;
+    let r = Arc::clone(&player.pos);
+    t.set(
+        "y",
+        lua.create_function(move |_, _: ()| Ok(r.read().unwrap().y))?,
+    )?;
 
-    let hp_ref = Arc::clone(&player.hp);
-    let hp = lua.create_function(move |_, _: ()| Ok(*hp_ref.read().unwrap()))?;
-    t.set("hp", hp)?;
+    let r = Arc::clone(&player.hp);
+    t.set(
+        "hp",
+        lua.create_function(move |_, _: ()| Ok(*r.read().unwrap()))?,
+    )?;
 
-    let heading_ref = Arc::clone(&player.heading);
-    let heading = lua.create_function(move |_, _: ()| Ok(*heading_ref.read().unwrap()))?;
-    t.set("heading", heading)?;
+    let r = Arc::clone(&player.heading);
+    t.set(
+        "heading",
+        lua.create_function(move |_, _: ()| Ok(*r.read().unwrap()))?,
+    )?;
 
-    let head_heading_ref = Arc::clone(&player.head_heading);
-    let head_heading =
-        lua.create_function(move |_, _: ()| Ok(*head_heading_ref.read().unwrap()))?;
-    t.set("head_heading", head_heading)?;
+    let r = Arc::clone(&player.head_heading);
+    t.set(
+        "head_heading",
+        lua.create_function(move |_, _: ()| Ok(*r.read().unwrap()))?,
+    )?;
 
-    let arms_heading_ref = Arc::clone(&player.arms_heading);
-    let arms_heading =
-        lua.create_function(move |_, _: ()| Ok(*arms_heading_ref.read().unwrap()))?;
-    t.set("arms_heading", arms_heading)?;
+    let r = Arc::clone(&player.arms_heading);
+    t.set(
+        "arms_heading",
+        lua.create_function(move |_, _: ()| Ok(*r.read().unwrap()))?,
+    )?;
 
-    let intent_ref = Arc::clone(&lua_impl.intent);
+    let r = Arc::clone(&player.attack_cooldown);
+    t.set(
+        "attack_cooldown",
+        lua.create_function(move |_, _: ()| Ok(*r.read().unwrap()))?,
+    )?;
+
+    let r = Arc::clone(&lua_impl.intent);
     t.set(
         "turn_remaining",
-        lua.create_function(move |_, _: ()| Ok(intent_ref.read().unwrap().turn_angle))?,
+        lua.create_function(move |_, _: ()| Ok(r.read().unwrap().turn_angle))?,
     )?;
 
-    let intent_ref = Arc::clone(&lua_impl.intent);
+    let r = Arc::clone(&lua_impl.intent);
     t.set(
         "head_turn_remaining",
-        lua.create_function(move |_, _: ()| Ok(intent_ref.read().unwrap().turn_head_angle))?,
+        lua.create_function(move |_, _: ()| Ok(r.read().unwrap().turn_head_angle))?,
     )?;
 
-    let intent_ref = Arc::clone(&lua_impl.intent);
+    let r = Arc::clone(&lua_impl.intent);
     t.set(
         "arms_turn_remaining",
-        lua.create_function(move |_, _: ()| Ok(intent_ref.read().unwrap().turn_arms_angle))?,
+        lua.create_function(move |_, _: ()| Ok(r.read().unwrap().turn_arms_angle))?,
     )?;
 
     Ok(())
@@ -826,8 +845,9 @@ fn determine_vision_events(game: &Game, event_manager: &mut EventManager) {
 fn create_attacks(game: &mut Game, event_manager: &mut EventManager) {
     for (index, player) in game.players.iter_mut().enumerate() {
         let lua_impl = &mut game.lua_impls[index];
-        if lua_impl.intent.read().unwrap().attack {
-            lua_impl.intent.write().unwrap().attack = false;
+        let will_attack =
+            lua_impl.intent.read().unwrap().attack && *player.attack_cooldown.read().unwrap() == 0;
+        if will_attack {
             let attack = Attack {
                 id: game.attack_ids.next(),
                 owner: player.id,
@@ -911,7 +931,17 @@ fn transition_attacks(game: &Game, event_manager: &mut EventManager) {
 fn advance_game_state(game: &mut Game, game_events: &[GameEvent]) {
     for event in game_events.iter() {
         match event {
-            GameEvent::Tick(_) => {}
+            GameEvent::Tick(_) => {
+                // FIXME: check whether saving the next tick shooting is
+                // possible again might be better; but then again we could not
+                // as easily add a Lua getter...
+                for player in game.players.iter_mut() {
+                    let cd = *player.attack_cooldown.read().unwrap();
+                    if cd > 0 {
+                        *player.attack_cooldown.write().unwrap() = cd - 1;
+                    }
+                }
+            }
             GameEvent::RoundStarted(_) => {}
             GameEvent::RoundOver(winner) => {
                 game.round_state = match winner {
@@ -1001,8 +1031,12 @@ fn advance_game_state(game: &mut Game, game_events: &[GameEvent]) {
                     game.attacks.remove(index);
                 }
             }
-            GameEvent::AttackCreated(_owner, attack) => {
+            GameEvent::AttackCreated(owner, attack) => {
                 game.attacks.push(attack.clone());
+                let player = game.player(*owner);
+                *player.attack_cooldown.write().unwrap() = ATTACK_COOLDOWN;
+                let lua_impl = game.lua_impl(*owner);
+                lua_impl.intent.write().unwrap().attack = false;
             }
         }
     }
