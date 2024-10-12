@@ -5,7 +5,7 @@ use std::sync::{mpsc, Arc, RwLock, RwLockReadGuard};
 use mlua::prelude::*;
 use rand::Rng;
 
-use crate::math_utils::{self, Point, HALF_PI};
+use crate::math_utils::{self, Point, Sector, HALF_PI};
 use crate::settings::*;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -795,18 +795,12 @@ fn can_spot(
     player_radius: f32,
     angle_of_vision: f32,
 ) -> bool {
-    // FIXME: test this most likely overly complicated stuff
-    let delta = angle_of_vision / 2.0;
-    let left = view_angle - delta;
-    let right = view_angle + delta;
-    let dist = origin.dist(target);
-    let alpha = f32::atan(player_radius / dist);
+    let view_sector = Sector::new(view_angle, angle_of_vision / 2.0);
+    let d = origin.dist(target);
+    let alpha = f32::atan(player_radius / d);
     let angle = math_utils::normalize_absolute_angle(math_utils::angle_between(origin, target));
-    let alpha_left = angle - alpha;
-    let alpha_right = angle + alpha;
-    math_utils::between(alpha_left, left, right)
-        || math_utils::between(alpha_right, left, right)
-        || (alpha_left <= left && alpha_right >= right)
+    let target_sector = Sector::new(angle, alpha);
+    view_sector.overlaps(&target_sector)
 }
 
 fn dispatch_player_events(
@@ -1207,61 +1201,5 @@ mod tests {
             let res: PlayerCommands = player.on_event(&PlayerEvent::Tick(17)).unwrap();
             assert_eq!(res.value.len(), 0);
         }
-    }
-
-    mod can_spot {
-        use std::f32::consts::PI;
-
-        use super::*;
-
-        #[test]
-        fn first_quadrant_too_far_left() {
-            let visible = can_spot(
-                &Point { x: 400.0, y: 400.0 },
-                -PI / 4.0,
-                &Point { x: 500.0, y: 300.0 },
-                25.0,
-                1.4,
-            );
-            assert!(!visible)
-        }
-
-        #[test]
-        fn first_quadrant_too_far_right() {
-            let visible = can_spot(
-                &Point { x: 400.0, y: 400.0 },
-                3.0 * PI / 4.0,
-                &Point { x: 500.0, y: 300.0 },
-                25.0,
-                1.4,
-            );
-            assert!(!visible);
-        }
-
-        #[test]
-        fn first_quadrant_head_on() {
-            let visible = can_spot(
-                &Point { x: 400.0, y: 400.0 },
-                PI / 4.0,
-                &Point { x: 500.0, y: 300.0 },
-                25.0,
-                1.4,
-            );
-            assert!(visible);
-        }
-
-        #[test]
-        fn first_quadrant_target_larger_than_vision_angle() {
-            let visible = can_spot(
-                &Point { x: 400.0, y: 400.0 },
-                0.7,
-                &Point { x: 500.0, y: 300.0 },
-                50.0,
-                0.1,
-            );
-            assert!(visible);
-        }
-
-        // FIXME: test other quadrants and relative positions
     }
 }

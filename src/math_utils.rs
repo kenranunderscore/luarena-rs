@@ -71,10 +71,6 @@ pub fn angle_between(p: &Point, q: &Point) -> f32 {
     f32::atan2(dy as f32, dx as f32) + HALF_PI
 }
 
-pub fn between(x: f32, lower: f32, upper: f32) -> bool {
-    lower <= x && x <= upper
-}
-
 pub fn normalize_absolute_angle(angle: f32) -> f32 {
     if angle >= TWO_PI {
         normalize_absolute_angle(angle - TWO_PI)
@@ -95,6 +91,49 @@ pub fn normalize_relative_angle(angle: f32) -> f32 {
         } else {
             a
         }
+    }
+}
+
+/// A `Sector` is defined by some angle designating the middle of the sector,
+/// and an offset that goes in each direction.
+///
+/// Example: Sector { angle: PI, delta: HALF_PI } describes the sector going
+/// from 90 degrees to 270 degrees.
+#[derive(Debug, Clone)]
+pub struct Sector {
+    angle: f32,
+    delta: f32,
+}
+
+impl Sector {
+    pub fn new(angle: f32, delta: f32) -> Self {
+        Self { angle, delta }
+    }
+
+    pub fn left(&self) -> f32 {
+        self.angle - self.delta
+    }
+
+    pub fn right(&self) -> f32 {
+        self.angle + self.delta
+    }
+
+    pub fn overlaps(&self, other: &Sector) -> bool {
+        let sl = normalize_absolute_angle(self.left());
+        let sr = normalize_absolute_angle(self.right());
+        let ol = normalize_absolute_angle(other.left());
+        let or = normalize_absolute_angle(other.right());
+        fn is_between(x: f32, a: f32, b: f32) -> bool {
+            if a <= b {
+                a <= x && x <= b
+            } else {
+                a <= x || x <= b
+            }
+        }
+        is_between(sl, ol, or)
+            || is_between(sr, ol, or)
+            || is_between(ol, sl, sr)
+            || is_between(or, sl, sr)
     }
 }
 
@@ -239,6 +278,324 @@ mod tests {
             p.set_to(&Point { x: 3.1, y: -2.5 });
             assert_float_eq!(p.x, 3.1, abs <= 0.0001);
             assert_float_eq!(p.y, -2.5, abs <= 0.0001);
+        }
+    }
+
+    mod sector {
+        mod overlaps {
+            use crate::math_utils::*;
+            use quickcheck::Arbitrary;
+            use quickcheck_macros::quickcheck;
+
+            fn f32_between(lower: f32, upper: f32, g: &mut quickcheck::Gen) -> f32 {
+                let mut x = f32::arbitrary(g);
+                while x.is_nan() || x.is_infinite() {
+                    x = f32::arbitrary(g);
+                }
+                lower + (x.abs() % (upper - lower))
+            }
+
+            impl Arbitrary for Sector {
+                fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+                    // Only create well-behaved `Sector` values
+                    let angle = f32_between(0.0, TWO_PI, g);
+                    let delta = f32_between(0.0, PI, g);
+                    Sector { angle, delta }
+                }
+            }
+
+            #[quickcheck]
+            fn overlapping_is_commutative(s: Sector, t: Sector) -> bool {
+                s.overlaps(&t) == t.overlaps(&s)
+            }
+
+            impl Sector {
+                fn from_degrees(angle: f32, delta: f32) -> Self {
+                    Self {
+                        angle: angle.to_radians(),
+                        delta: delta.to_radians(),
+                    }
+                }
+            }
+
+            mod first_quadrant {
+                use crate::math_utils::*;
+
+                #[test]
+                fn too_far_left() {
+                    let overlap =
+                        Sector::from_degrees(45.0, 30.0).overlaps(&Sector::from_degrees(0.0, 10.0));
+                    assert!(!overlap);
+                }
+
+                #[test]
+                fn too_far_right() {
+                    let overlap =
+                        Sector::from_degrees(45.0, 30.0).overlaps(&Sector::from_degrees(80.0, 4.0));
+                    assert!(!overlap);
+                }
+
+                #[test]
+                fn target_fully_contained() {
+                    let overlap =
+                        Sector::from_degrees(45.0, 30.0).overlaps(&Sector::from_degrees(50.0, 5.0));
+                    assert!(overlap);
+                }
+
+                #[test]
+                fn source_fully_contained() {
+                    let overlap = Sector::from_degrees(45.0, 30.0)
+                        .overlaps(&Sector::from_degrees(40.0, 45.0));
+                    assert!(overlap);
+                }
+
+                #[test]
+                fn left_only_overlap() {
+                    let overlap =
+                        Sector::from_degrees(30.0, 25.0).overlaps(&Sector::from_degrees(4.0, 5.0));
+                    assert!(overlap);
+                }
+
+                #[test]
+                fn right_only_overlap() {
+                    let overlap =
+                        Sector::from_degrees(30.0, 25.0).overlaps(&Sector::from_degrees(55.0, 5.0));
+                    assert!(overlap);
+                }
+
+                #[test]
+                fn mixed_with_second() {
+                    let overlap = Sector::from_degrees(80.0, 25.0)
+                        .overlaps(&Sector::from_degrees(110.0, 7.0));
+                    assert!(overlap);
+                }
+            }
+
+            mod second_quadrant {
+                use crate::math_utils::*;
+
+                #[test]
+                fn too_far_left() {
+                    let overlap = Sector::from_degrees(135.0, 30.0)
+                        .overlaps(&Sector::from_degrees(90.0, 10.0));
+                    assert!(!overlap);
+                }
+
+                #[test]
+                fn too_far_right() {
+                    let overlap = Sector::from_degrees(135.0, 30.0)
+                        .overlaps(&Sector::from_degrees(170.0, 4.0));
+                    assert!(!overlap);
+                }
+
+                #[test]
+                fn target_fully_contained() {
+                    let overlap = Sector::from_degrees(135.0, 30.0)
+                        .overlaps(&Sector::from_degrees(140.0, 5.0));
+                    assert!(overlap);
+                }
+
+                #[test]
+                fn source_fully_contained() {
+                    let overlap = Sector::from_degrees(135.0, 30.0)
+                        .overlaps(&Sector::from_degrees(130.0, 45.0));
+                    assert!(overlap);
+                }
+
+                #[test]
+                fn left_only_overlap() {
+                    let overlap = Sector::from_degrees(120.0, 25.0)
+                        .overlaps(&Sector::from_degrees(94.0, 5.0));
+                    assert!(overlap);
+                }
+
+                #[test]
+                fn right_only_overlap() {
+                    let overlap = Sector::from_degrees(120.0, 25.0)
+                        .overlaps(&Sector::from_degrees(145.0, 5.0));
+                    assert!(overlap);
+                }
+
+                #[test]
+                fn mixed_with_third() {
+                    let overlap = Sector::from_degrees(170.0, 25.0)
+                        .overlaps(&Sector::from_degrees(200.0, 7.0));
+                    assert!(overlap);
+                }
+            }
+
+            mod third_quadrant {
+                use crate::math_utils::*;
+
+                #[test]
+                fn too_far_left() {
+                    let overlap = Sector::from_degrees(225.0, 30.0)
+                        .overlaps(&Sector::from_degrees(180.0, 10.0));
+                    assert!(!overlap);
+                }
+
+                #[test]
+                fn too_far_right() {
+                    let overlap = Sector::from_degrees(225.0, 30.0)
+                        .overlaps(&Sector::from_degrees(260.0, 4.0));
+                    assert!(!overlap);
+                }
+
+                #[test]
+                fn target_fully_contained() {
+                    let overlap = Sector::from_degrees(225.0, 30.0)
+                        .overlaps(&Sector::from_degrees(230.0, 5.0));
+                    assert!(overlap);
+                }
+
+                #[test]
+                fn source_fully_contained() {
+                    let overlap = Sector::from_degrees(225.0, 30.0)
+                        .overlaps(&Sector::from_degrees(220.0, 45.0));
+                    assert!(overlap);
+                }
+
+                #[test]
+                fn left_only_overlap() {
+                    let overlap = Sector::from_degrees(210.0, 25.0)
+                        .overlaps(&Sector::from_degrees(184.0, 5.0));
+                    assert!(overlap);
+                }
+
+                #[test]
+                fn right_only_overlap() {
+                    let overlap = Sector::from_degrees(210.0, 25.0)
+                        .overlaps(&Sector::from_degrees(235.0, 5.0));
+                    assert!(overlap);
+                }
+
+                #[test]
+                fn mixed_with_fourth() {
+                    let overlap = Sector::from_degrees(260.0, 25.0)
+                        .overlaps(&Sector::from_degrees(290.0, 7.0));
+                    assert!(overlap);
+                }
+            }
+
+            mod fourth_quadrant {
+                use crate::math_utils::*;
+
+                #[test]
+                fn too_far_left() {
+                    let overlap = Sector::from_degrees(315.0, 30.0)
+                        .overlaps(&Sector::from_degrees(270.0, 10.0));
+                    assert!(!overlap);
+                }
+
+                #[test]
+                fn too_far_right() {
+                    let overlap = Sector::from_degrees(315.0, 30.0)
+                        .overlaps(&Sector::from_degrees(350.0, 4.0));
+                    assert!(!overlap);
+                }
+
+                #[test]
+                fn target_fully_contained() {
+                    let overlap = Sector::from_degrees(315.0, 30.0)
+                        .overlaps(&Sector::from_degrees(320.0, 5.0));
+                    assert!(overlap);
+                }
+
+                #[test]
+                fn source_fully_contained() {
+                    let overlap = Sector::from_degrees(315.0, 30.0)
+                        .overlaps(&Sector::from_degrees(310.0, 45.0));
+                    assert!(overlap);
+                }
+
+                #[test]
+                fn left_only_overlap() {
+                    let overlap = Sector::from_degrees(300.0, 25.0)
+                        .overlaps(&Sector::from_degrees(274.0, 5.0));
+                    assert!(overlap);
+                }
+
+                #[test]
+                fn right_only_overlap() {
+                    let overlap = Sector::from_degrees(300.0, 25.0)
+                        .overlaps(&Sector::from_degrees(325.0, 5.0));
+                    assert!(overlap);
+                }
+            }
+
+            mod first_to_fourth_overflow {
+                use crate::math_utils::*;
+
+                #[test]
+                fn too_far_left() {
+                    let overlap = Sector::from_degrees(355.0, 10.0)
+                        .overlaps(&Sector::from_degrees(340.0, 2.0));
+                    assert!(!overlap);
+                }
+
+                #[test]
+                fn too_far_right() {
+                    let overlap = Sector::from_degrees(355.0, 10.0)
+                        .overlaps(&Sector::from_degrees(20.0, 12.0));
+                    assert!(!overlap);
+                }
+
+                #[test]
+                fn target_fully_contained_both_overflowing() {
+                    let overlap = Sector::from_degrees(350.0, 30.0)
+                        .overlaps(&Sector::from_degrees(355.0, 10.0));
+                    assert!(overlap);
+                }
+
+                #[test]
+                fn target_fully_contained_source_overflowing() {
+                    let overlap = Sector::from_degrees(350.0, 30.0)
+                        .overlaps(&Sector::from_degrees(352.0, 5.0));
+                    assert!(overlap);
+                }
+
+                #[test]
+                fn left_only_overlap() {
+                    let overlap = Sector::from_degrees(340.0, 40.0)
+                        .overlaps(&Sector::from_degrees(290.0, 20.0));
+                    assert!(overlap);
+                }
+
+                #[test]
+                fn right_only_overlap_target_right_overflowing() {
+                    let overlap = Sector::from_degrees(350.0, 20.0)
+                        .overlaps(&Sector::from_degrees(355.0, 20.0));
+                    assert!(overlap);
+                }
+
+                #[test]
+                fn target_in_next_quadrant_fully_contained() {
+                    let overlap =
+                        Sector::from_degrees(350.0, 20.0).overlaps(&Sector::from_degrees(5.0, 4.0));
+                    assert!(overlap);
+                }
+
+                #[test]
+                fn target_in_next_quadrant_not_fully_contained() {
+                    let overlap =
+                        Sector::from_degrees(350.0, 20.0).overlaps(&Sector::from_degrees(9.0, 5.0));
+                    assert!(overlap);
+                }
+
+                #[test]
+                fn target_in_next_quadrant_underflowing_fully_contained() {
+                    let overlap =
+                        Sector::from_degrees(350.0, 20.0).overlaps(&Sector::from_degrees(1.0, 5.0));
+                    assert!(overlap);
+                }
+
+                #[test]
+                fn target_in_next_quadrant_underflowing_not_fully_contained() {
+                    let overlap = Sector::from_degrees(350.0, 20.0)
+                        .overlaps(&Sector::from_degrees(5.0, 10.0));
+                    assert!(overlap);
+                }
+            }
         }
     }
 }
