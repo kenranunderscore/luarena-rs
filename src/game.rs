@@ -639,7 +639,6 @@ pub enum GameEvent {
     RoundOver(Option<u8>),
     PlayerHeadTurned(u8, f32),
     PlayerArmsTurned(u8, f32),
-    EnemySeen(u8, String, Point),
     Hit(usize, u8, u8, Point),
     AttackAdvanced(usize, Point),
     AttackMissed(usize),
@@ -743,21 +742,16 @@ pub enum PlayerEvent {
 
 fn game_events_to_player_events(player: &Player, game_events: &[GameEvent]) -> Vec<PlayerEvent> {
     // FIXME: when to generate enemy_seen events?
-    let mut acc = Vec::new();
+    let mut player_events = Vec::new();
     for event in game_events.iter() {
         match event {
             GameEvent::Tick(n) => {
-                acc.push(PlayerEvent::Tick(*n));
+                player_events.push(PlayerEvent::Tick(*n));
             }
             GameEvent::RoundStarted(n) => {
-                acc.push(PlayerEvent::RoundStarted(*n));
+                player_events.push(PlayerEvent::RoundStarted(*n));
             }
             GameEvent::RoundOver(_) => {}
-            GameEvent::EnemySeen(id, target, pos) => {
-                if *id == player.id {
-                    acc.push(PlayerEvent::EnemySeen(target.clone(), pos.clone()));
-                }
-            }
             GameEvent::PlayerTurned(_, _) => {}
             GameEvent::PlayerPositionUpdated(_, _) => {}
             GameEvent::PlayerHeadTurned(_, _) => {}
@@ -765,12 +759,12 @@ fn game_events_to_player_events(player: &Player, game_events: &[GameEvent]) -> V
             GameEvent::Hit(_, owner_id, victim_id, pos) => {
                 if player.id == *victim_id {
                     // FIXME: don't use id
-                    acc.push(PlayerEvent::HitBy(*owner_id));
+                    player_events.push(PlayerEvent::HitBy(*owner_id));
                     if !player.alive() {
-                        acc.push(PlayerEvent::Death);
+                        player_events.push(PlayerEvent::Death);
                     }
                 } else if player.id == *owner_id {
-                    acc.push(PlayerEvent::AttackHit(*victim_id, pos.clone()));
+                    player_events.push(PlayerEvent::AttackHit(*victim_id, pos.clone()));
                 }
             }
             GameEvent::AttackAdvanced(_, _) => {}
@@ -778,7 +772,7 @@ fn game_events_to_player_events(player: &Player, game_events: &[GameEvent]) -> V
             GameEvent::AttackCreated(_, _) => {}
         }
     }
-    acc
+    player_events
 }
 
 fn can_spot(
@@ -811,40 +805,6 @@ fn dispatch_player_events(
         commands.append(&mut lua_player.on_event(&e)?.value);
     }
     Ok(commands)
-}
-
-fn determine_vision_events(game: &Game, event_manager: &mut EventManager) {
-    // FIXME: learn how to do this in a better way!
-    let player_positions: Vec<(u8, String, Point)> = game
-        .players
-        .iter()
-        .map(|player| {
-            (
-                player.id,
-                player.meta.name.clone(),
-                player.pos.read().unwrap().clone(),
-            )
-        })
-        .collect();
-    for player in game.living_players() {
-        for (id, name, pos) in player_positions.iter() {
-            if *id != player.id {
-                if can_spot(
-                    &player.pos.read().unwrap(),
-                    player.effective_head_heading(),
-                    &pos,
-                    PLAYER_RADIUS as f32,
-                    ANGLE_OF_VISION,
-                ) {
-                    event_manager.record(GameEvent::EnemySeen(
-                        player.id,
-                        name.to_string(),
-                        pos.clone(),
-                    ));
-                }
-            }
-        }
-    }
 }
 
 fn create_attacks(game: &mut Game, event_manager: &mut EventManager) {
@@ -1008,7 +968,6 @@ fn advance_game_state(game: &mut Game, game_events: &[GameEvent]) {
                         turn_arms_angle - *delta
                     };
             }
-            GameEvent::EnemySeen(_, _, _) => {}
             GameEvent::Hit(attack_id, _, victim_id, _) => {
                 if let Some(index) = game
                     .attacks
@@ -1097,8 +1056,34 @@ fn write_game_data(game: &Game, game_writer: &mpsc::Sender<GameData>) {
 }
 
 fn run_lua_players(game: &mut Game, events: &[GameEvent]) -> LuaResult<()> {
+    // FIXME: learn how to do this in a better way!
+    let player_positions: Vec<(u8, String, Point)> = game
+        .players
+        .iter()
+        .map(|player| {
+            (
+                player.id,
+                player.meta.name.clone(),
+                player.pos.read().unwrap().clone(),
+            )
+        })
+        .collect();
+    // FIXME: only living players?
     for (index, player) in game.players.iter_mut().enumerate() {
-        let player_events = game_events_to_player_events(player, events);
+        let mut player_events = game_events_to_player_events(player, events);
+        for (id, name, pos) in player_positions.iter() {
+            if *id != player.id {
+                if can_spot(
+                    &player.pos.read().unwrap(),
+                    player.effective_head_heading(),
+                    &pos,
+                    PLAYER_RADIUS as f32,
+                    ANGLE_OF_VISION,
+                ) {
+                    player_events.push(PlayerEvent::EnemySeen(name.clone(), pos.clone()));
+                }
+            }
+        }
         let lua_impl = &mut game.lua_impls[index];
         let mut commands = dispatch_player_events(player_events, lua_impl)?;
         reduce_commands(&mut commands);
@@ -1133,9 +1118,6 @@ pub fn step(
 ) -> LuaResult<()> {
     event_manager.init_tick(game);
     check_for_round_end(game, event_manager);
-    // FIXME: EnemySeen is unnecessary/useless as a game event -> it only
-    // matters for players
-    determine_vision_events(game, event_manager);
     transition_players(game, event_manager);
     create_attacks(game, event_manager);
     transition_attacks(game, event_manager);
