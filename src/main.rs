@@ -1,4 +1,5 @@
 use std::{
+    path::Path,
     sync::{atomic::AtomicBool, mpsc, Arc},
     time::Duration,
 };
@@ -27,8 +28,8 @@ fn main() -> LuaResult<()> {
 
     let game_thread = std::thread::spawn(move || -> LuaResult<()> {
         let mut game = Game::new();
-        game.add_lua_player("players/kai")?;
-        game.add_lua_player("players/lloyd")?;
+        game.add_lua_player(Path::new("players/kai"))?;
+        game.add_lua_player(Path::new("players/lloyd"))?;
 
         let delay = Duration::from_millis(7);
         run_game(&mut game, &delay, &game_writer, &cancel_ref)

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, RwLock, RwLockReadGuard};
 
@@ -190,10 +191,9 @@ pub struct PlayerMeta {
 }
 
 impl PlayerMeta {
-    pub fn from_lua(player_dir: &str) -> LuaResult<PlayerMeta> {
+    pub fn from_lua(player_dir: &Path) -> LuaResult<PlayerMeta> {
         let lua = Lua::new();
-        // FIXME: use PathBuf or similar
-        let meta_file = format!("{player_dir}/meta.lua");
+        let meta_file = player_dir.join("meta.lua");
         let code = std::fs::read_to_string(meta_file)?;
         lua.load(&code).exec()?;
         let name = lua.globals().get("name")?;
@@ -581,9 +581,9 @@ impl Game {
         }
     }
 
-    pub fn add_lua_player(&mut self, path: &str) -> LuaResult<()> {
-        let meta = PlayerMeta::from_lua(path)?;
-        let lua_impl = load_lua_player(path, &meta)?;
+    pub fn add_lua_player(&mut self, player_dir: &Path) -> LuaResult<()> {
+        let meta = PlayerMeta::from_lua(player_dir)?;
+        let lua_impl = load_lua_player(player_dir, &meta)?;
         let id = self.players.len() as u8; // FIXME
         let player = Player::new(meta, id);
         register_lua_library(&player, &lua_impl)?;
@@ -639,9 +639,8 @@ impl Game {
     }
 }
 
-pub fn load_lua_player(player_dir: &str, meta: &PlayerMeta) -> LuaResult<LuaImpl> {
-    // FIXME: use PathBuf or similar
-    let file = format!("{player_dir}/{0}", meta.entrypoint);
+pub fn load_lua_player(player_dir: &Path, meta: &PlayerMeta) -> LuaResult<LuaImpl> {
+    let file = player_dir.join(&meta.entrypoint);
     let code = std::fs::read_to_string(file)?;
     LuaImpl::new(&code)
 }
