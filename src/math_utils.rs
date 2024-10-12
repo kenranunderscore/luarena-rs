@@ -104,6 +104,62 @@ mod tests {
     use float_eq::assert_float_eq;
     use std::f32::consts::PI;
 
+    mod angle_between {
+        use super::*;
+
+        #[test]
+        fn target_right_above() {
+            let angle = angle_between(&Point { x: 10.0, y: 10.0 }, &Point { x: 10.0, y: 5.0 });
+            assert_float_eq!(angle, 0.0, abs <= 0.0001);
+        }
+
+        #[test]
+        fn target_right_below() {
+            let angle = angle_between(&Point { x: 10.0, y: 10.0 }, &Point { x: 10.0, y: 50.0 });
+            assert_float_eq!(angle, PI, abs <= 0.0001);
+        }
+
+        #[test]
+        fn target_directly_to_the_right() {
+            let angle = angle_between(&Point { x: 10.0, y: 10.0 }, &Point { x: 20.0, y: 10.0 });
+            assert_float_eq!(angle, HALF_PI, abs <= 0.0001);
+        }
+
+        #[test]
+        fn target_directly_to_the_left() {
+            let angle = angle_between(&Point { x: 10.0, y: 0.0 }, &Point { x: 0.0, y: 0.0 });
+            assert_float_eq!(angle, 270_f32.to_radians(), abs <= 0.0001);
+        }
+
+        #[test]
+        fn target_at_45_degrees() {
+            let angle = angle_between(&Point { x: -1.0, y: 0.0 }, &Point { x: 0.0, y: -1.0 });
+            assert_float_eq!(angle, 45_f32.to_radians(), abs <= 0.0001);
+        }
+
+        #[test]
+        fn target_at_135_degrees() {
+            let angle = angle_between(&Point { x: 0.0, y: 0.0 }, &Point { x: 1.0, y: 1.0 });
+            assert_float_eq!(angle, 135_f32.to_radians(), abs <= 0.0001);
+        }
+
+        #[test]
+        fn target_at_225_degrees() {
+            let angle = angle_between(&Point { x: 0.0, y: 0.0 }, &Point { x: -1.0, y: 1.0 });
+            assert_float_eq!(angle, 225_f32.to_radians(), abs <= 0.0001);
+        }
+
+        #[test]
+        fn target_at_315_degrees() {
+            let angle = angle_between(&Point { x: 200.0, y: 200.0 }, &Point { x: 100.0, y: 100.0 });
+            assert_float_eq!(
+                normalize_absolute_angle(angle),
+                315_f32.to_radians(),
+                abs <= 0.0001
+            );
+        }
+    }
+
     mod normalize_absolute_angle {
         use super::*;
 
