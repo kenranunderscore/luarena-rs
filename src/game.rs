@@ -559,8 +559,8 @@ pub enum RoundState {
 }
 
 pub struct Game {
-    pub tick: i32,
-    pub round: i32,
+    pub tick: u32,
+    pub round: u32,
     pub players: Vec<Player>,
     pub lua_impls: Vec<LuaImpl>,
     pub attacks: Vec<Attack>,
@@ -592,7 +592,7 @@ impl Game {
         Ok(())
     }
 
-    pub fn init_round(&mut self, round: i32) {
+    pub fn init_round(&mut self, round: u32) {
         let mut rng = rand::thread_rng();
         self.tick = 0;
         self.round = round;
@@ -669,8 +669,8 @@ impl Delta {
 }
 
 pub enum GameEvent {
-    Tick(i32),
-    RoundStarted(i32),
+    Tick(u32),
+    RoundStarted(u32),
     RoundOver(Option<u8>),
     PlayerHeadTurned(u8, f32),
     PlayerArmsTurned(u8, f32),
@@ -765,8 +765,8 @@ fn players_collide(p: &Point, q: &Point) -> bool {
 
 #[derive(Debug)]
 pub enum PlayerEvent {
-    Tick(i32),
-    RoundStarted(i32),
+    Tick(u32),
+    RoundStarted(u32),
     EnemySeen(String, Point),
     Death,
     HitBy(u8),
@@ -875,7 +875,7 @@ impl EventManager {
         }
     }
 
-    pub fn init_tick(&mut self, tick: i32, round: i32) {
+    pub fn init_tick(&mut self, tick: u32, round: u32) {
         self.current_events = tick_events(tick, round);
     }
 
@@ -888,7 +888,7 @@ impl EventManager {
     }
 }
 
-fn tick_events(tick: i32, round: i32) -> Vec<GameEvent> {
+fn tick_events(tick: u32, round: u32) -> Vec<GameEvent> {
     let mut events = vec![GameEvent::Tick(tick)];
     if tick == 0 {
         events.push(GameEvent::RoundStarted(round));
@@ -1148,7 +1148,6 @@ pub fn step(
 pub fn run_round(
     game: &mut Game,
     event_manager: &mut EventManager,
-    // FIXME: find out whether it's better to pass such things via & or without
     delay: &std::time::Duration,
     game_writer: &mpsc::Sender<GameData>,
     cancel: &Arc<AtomicBool>,
