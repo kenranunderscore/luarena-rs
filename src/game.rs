@@ -581,6 +581,9 @@ impl Game {
             };
             player.reset(random_pos);
         }
+        for lua_impl in self.lua_impls.iter_mut() {
+            *lua_impl.intent.write().unwrap() = Default::default();
+        }
     }
 
     pub fn living_players(&self) -> impl Iterator<Item = &Player> {
