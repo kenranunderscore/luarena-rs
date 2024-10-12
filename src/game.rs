@@ -875,9 +875,8 @@ impl EventManager {
         }
     }
 
-    // FIXME: don't pass the whole game state
-    pub fn init_tick(&mut self, game: &Game) {
-        self.current_events = tick_events(game);
+    pub fn init_tick(&mut self, tick: i32, round: i32) {
+        self.current_events = tick_events(tick, round);
     }
 
     pub fn record(&mut self, event: GameEvent) {
@@ -889,10 +888,10 @@ impl EventManager {
     }
 }
 
-fn tick_events(game: &Game) -> Vec<GameEvent> {
-    let mut events = vec![GameEvent::Tick(game.tick)];
-    if game.tick == 0 {
-        events.push(GameEvent::RoundStarted(game.round));
+fn tick_events(tick: i32, round: i32) -> Vec<GameEvent> {
+    let mut events = vec![GameEvent::Tick(tick)];
+    if tick == 0 {
+        events.push(GameEvent::RoundStarted(round));
     }
     events
 }
@@ -1130,7 +1129,7 @@ pub fn step(
     event_manager: &mut EventManager,
     game_writer: &mpsc::Sender<GameData>,
 ) -> LuaResult<()> {
-    event_manager.init_tick(game);
+    event_manager.init_tick(game.tick, game.round);
     check_for_round_end(game, event_manager);
     transition_players(game, event_manager);
     create_attacks(game, event_manager);
