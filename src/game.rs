@@ -605,6 +605,13 @@ impl Game {
             .expect("player {id} not found")
     }
 
+    pub fn attack(&mut self, id: usize) -> &mut Attack {
+        self.attacks
+            .iter_mut()
+            .find(|attack| attack.id == id)
+            .expect("attack {id} not found")
+    }
+
     pub fn lua_impl(&mut self, id: u8) -> &mut LuaImpl {
         // FIXME: player id should be index
         &mut self.lua_impls[id as usize]
@@ -982,11 +989,7 @@ fn advance_game_state(game: &mut Game, game_events: &[GameEvent]) {
                 *game.player(*victim_id).hp.write().unwrap() -= ATTACK_DAMAGE;
             }
             GameEvent::AttackAdvanced(id, pos) => {
-                let attack = game
-                    .attacks
-                    .iter_mut()
-                    .find(|attack| attack.id == *id)
-                    .expect("attack {id} not found");
+                let attack = game.attack(*id);
                 attack.pos.set_to(&pos);
             }
             GameEvent::AttackMissed(id) => {
