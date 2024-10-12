@@ -774,7 +774,6 @@ pub enum PlayerEvent {
 }
 
 fn game_events_to_player_events(player: &Player, game_events: &[GameEvent]) -> Vec<PlayerEvent> {
-    // FIXME: when to generate enemy_seen events?
     let mut player_events = Vec::new();
     for event in game_events.iter() {
         match event {
