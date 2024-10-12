@@ -72,25 +72,15 @@ pub fn angle_between(p: &Point, q: &Point) -> f32 {
 }
 
 pub fn normalize_absolute_angle(angle: f32) -> f32 {
-    if angle >= TWO_PI {
-        normalize_absolute_angle(angle - TWO_PI)
-    } else if angle < 0.0 {
-        normalize_absolute_angle(angle + TWO_PI)
-    } else {
-        angle
-    }
+    angle.rem_euclid(TWO_PI)
 }
 
 pub fn normalize_relative_angle(angle: f32) -> f32 {
-    if angle >= -PI && angle < PI {
-        angle
+    let res = normalize_absolute_angle(angle);
+    if res >= PI {
+        res - TWO_PI
     } else {
-        let a = normalize_absolute_angle(angle);
-        if a >= PI {
-            a - TWO_PI
-        } else {
-            a
-        }
+        res
     }
 }
 
