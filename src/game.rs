@@ -317,13 +317,13 @@ impl Player {
     }
 
     // TODO: also randomize headings?
-    pub fn reset(&mut self, new_pos: Point) {
+    pub fn reset(&mut self, next_pos: Point) {
         *self.hp.write().unwrap() = INITIAL_HP;
         *self.heading.write().unwrap() = 0.0;
         *self.head_heading.write().unwrap() = 0.0;
         *self.arms_heading.write().unwrap() = 0.0;
         let mut pos = self.pos.write().unwrap();
-        pos.set_to(&new_pos);
+        pos.set_to(&next_pos);
     }
 
     pub fn heading(&self) -> f32 {
@@ -575,11 +575,11 @@ impl Game {
         let max_y = HEIGHT as f32 - PLAYER_RADIUS - 5.0;
         for player in self.players.iter_mut() {
             // FIXME: don't create collisions
-            let new_pos = Point {
+            let random_pos = Point {
                 x: rng.gen_range(min..max_x) as f32,
                 y: rng.gen_range(min..max_y) as f32,
             };
-            player.reset(new_pos);
+            player.reset(random_pos);
         }
     }
 
@@ -710,7 +710,9 @@ fn transition_heads(player: &Player, lua_impl: &LuaImpl, event_manager: &mut Eve
         -MAX_HEAD_TURN_RATE,
         MAX_HEAD_TURN_RATE,
     );
-    event_manager.record(GameEvent::PlayerHeadTurned(player.id, delta));
+    let current_heading = player.head_heading();
+    let effective_delta = clamp_turn_angle(current_heading + delta) - current_heading;
+    event_manager.record(GameEvent::PlayerHeadTurned(player.id, effective_delta));
 }
 
 fn transition_arms(player: &Player, lua_impl: &LuaImpl, event_manager: &mut EventManager) {
@@ -909,18 +911,18 @@ fn tick_events(game: &Game) -> Vec<GameEvent> {
 
 fn transition_attacks(game: &Game, event_manager: &mut EventManager) {
     for attack in game.attacks.iter() {
-        let new_pos = math_utils::line_endpoint(
+        let next_pos = math_utils::line_endpoint(
             attack.pos.x as f32,
             attack.pos.y as f32,
             attack.velocity,
             attack.heading,
         );
-        if inside_arena(&new_pos) {
+        if inside_arena(&next_pos) {
             if let Some(player) = attack_hits_player(&attack, game.living_players()) {
                 // FIXME: new_pos or old position here?
-                event_manager.record(GameEvent::Hit(attack.id, attack.owner, player.id, new_pos));
+                event_manager.record(GameEvent::Hit(attack.id, attack.owner, player.id, next_pos));
             } else {
-                event_manager.record(GameEvent::AttackAdvanced(attack.id, new_pos));
+                event_manager.record(GameEvent::AttackAdvanced(attack.id, next_pos));
             }
         } else {
             event_manager.record(GameEvent::AttackMissed(attack.id));
@@ -963,12 +965,10 @@ fn advance_game_state(game: &mut Game, game_events: &[GameEvent]) {
                 lua_impl.intent.write().unwrap().distance = f32::max(distance - d, 0.0);
             }
             GameEvent::PlayerTurned(id, delta) => {
-                {
-                    let player = game.player(*id);
-                    let heading = *player.heading.read().unwrap();
-                    *player.heading.write().unwrap() =
-                        math_utils::normalize_absolute_angle(heading + *delta);
-                }
+                let player = game.player(*id);
+                let heading = *player.heading.read().unwrap();
+                *player.heading.write().unwrap() =
+                    math_utils::normalize_absolute_angle(heading + *delta);
                 let lua_impl = game.lua_impl(*id);
                 let turn_angle = lua_impl.intent.read().unwrap().turn_angle;
                 lua_impl.intent.write().unwrap().turn_angle = if turn_angle.abs() < MAX_TURN_RATE {
@@ -978,18 +978,16 @@ fn advance_game_state(game: &mut Game, game_events: &[GameEvent]) {
                 };
             }
             GameEvent::PlayerHeadTurned(id, delta) => {
-                {
-                    let player = game.player(*id);
-                    let heading = clamp_turn_angle(player.head_heading() + *delta);
-                    *player.head_heading.write().unwrap() = heading;
-                }
+                let player = game.player(*id);
+                let heading = player.head_heading() + *delta;
+                *player.head_heading.write().unwrap() = heading;
                 let lua_impl = game.lua_impl(*id);
-                let turn_head_angle = lua_impl.intent.read().unwrap().turn_head_angle;
+                let intended = lua_impl.intent.read().unwrap().turn_head_angle;
                 lua_impl.intent.write().unwrap().turn_head_angle =
-                    if turn_head_angle.abs() < MAX_HEAD_TURN_RATE {
+                    if intended.abs() < MAX_HEAD_TURN_RATE {
                         0.0
                     } else {
-                        turn_head_angle - *delta
+                        intended - *delta
                     };
             }
             GameEvent::PlayerArmsTurned(id, delta) => {
@@ -1106,10 +1104,14 @@ fn run_lua_players(game: &mut Game, events: &[GameEvent]) -> LuaResult<()> {
                 PlayerCommand::Attack => lua_impl.intent.write().unwrap().attack = true,
                 PlayerCommand::Turn(angle) => lua_impl.intent.write().unwrap().turn_angle = *angle,
                 PlayerCommand::TurnHead(angle) => {
-                    lua_impl.intent.write().unwrap().turn_head_angle = *angle
+                    let current = player.head_heading();
+                    let next = clamp_turn_angle(current + *angle) - current;
+                    lua_impl.intent.write().unwrap().turn_head_angle = next;
                 }
                 PlayerCommand::TurnArms(angle) => {
-                    lua_impl.intent.write().unwrap().turn_arms_angle = *angle
+                    let current = player.arms_heading();
+                    let next = clamp_turn_angle(current + *angle) - current;
+                    lua_impl.intent.write().unwrap().turn_arms_angle = next;
                 }
                 PlayerCommand::Move(dir, dist) => {
                     lua_impl.intent.write().unwrap().direction = dir.clone();
