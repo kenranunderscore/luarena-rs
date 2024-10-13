@@ -13,20 +13,20 @@ function m.on_tick(n)
 end
 
 function m.on_round_started(n)
-   print("on round started: " .. n)
+   me.log("on round started: " .. n)
    locked = false
 end
 
 function m.on_death()
-   print("I'm dead")
+   me.log("I'm dead")
 end
 
 function m.on_attack_hit(name, x, y)
-   print("Gotcha, " .. name)
+   me.log("Gotcha, " .. name)
 end
 
 function m.on_hit_by()
-   print("nooooo")
+   me.log("nooooo")
 end
 
 function m.on_enemy_seen(name, x, y)
@@ -35,7 +35,7 @@ function m.on_enemy_seen(name, x, y)
    a = utils.normalize_relative_angle(angle - me.heading())
    res = { me.turn(a) }
    if me.turn_remaining() < 0.05 and math.abs(a) < 0.05 and me.attack_cooldown() == 0 then
-      print("shooting")
+      me.log("shooting")
       table.insert(res, me.attack())
    end
    return res

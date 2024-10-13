@@ -457,6 +457,16 @@ fn register_player_state_accessors(
         lua.create_function(move |_, _: ()| Ok(r.read().unwrap().turn_arms_angle))?,
     )?;
 
+    let name = player.meta.name.clone();
+    t.set(
+        "log",
+        lua.create_function(move |_, msg: LuaString| {
+            let msg = msg.to_str()?;
+            println!("[{name}] {msg}");
+            Ok(())
+        })?,
+    )?;
+
     Ok(())
 }
 
