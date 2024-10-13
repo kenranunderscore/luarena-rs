@@ -96,7 +96,7 @@ fn players<'a>(
 
 fn attacks(d: &mut raylib::drawing::RaylibDrawHandle, attacks: &[Point]) {
     for attack in attacks {
-        let attack_color = Color::RED;
+        let attack_color = Color::GOLDENROD;
         d.draw_circle(
             attack.x.round() as i32,
             attack.y.round() as i32,
