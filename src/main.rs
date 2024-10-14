@@ -51,9 +51,10 @@ fn main() -> LuaResult<()> {
     }
 
     if game_thread.is_finished() {
-        return game_thread.join().unwrap();
+        let _ = game_thread.join().unwrap();
+    } else {
+        cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+        let _ = game_thread.join();
     }
-
-    cancel.store(true, std::sync::atomic::Ordering::Relaxed);
     Ok(())
 }

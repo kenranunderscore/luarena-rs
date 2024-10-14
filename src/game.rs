@@ -1164,7 +1164,6 @@ pub fn run_round(
 ) -> LuaResult<()> {
     loop {
         if cancel.load(Ordering::Relaxed) {
-            println!("Game cancelled");
             break;
         }
 
@@ -1194,6 +1193,11 @@ pub fn run_game(
     let mut event_manager = EventManager::new();
     let max_rounds = 2;
     for round in 1..max_rounds + 1 {
+        if cancel.load(Ordering::Relaxed) {
+            println!("Game cancelled");
+            break;
+        }
+
         game.init_round(round);
         run_round(game, &mut event_manager, delay, game_writer, cancel)?;
     }
