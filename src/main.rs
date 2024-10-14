@@ -32,7 +32,7 @@ fn main() -> LuaResult<()> {
         game.add_lua_player(Path::new("players/lloyd"))?;
 
         let delay = Duration::from_millis(7);
-        run_game(&mut game, &delay, &game_writer, &cancel_ref)
+        run_game(&mut game, &delay, game_writer, &cancel_ref)
     });
 
     rl.set_target_fps(60);

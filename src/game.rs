@@ -1187,7 +1187,7 @@ pub fn run_round(
 pub fn run_game(
     game: &mut Game,
     delay: &std::time::Duration,
-    game_writer: &mpsc::Sender<GameData>,
+    game_writer: mpsc::Sender<GameData>,
     cancel: &Arc<AtomicBool>,
 ) -> LuaResult<()> {
     let mut event_manager = EventManager::new();
@@ -1199,7 +1199,7 @@ pub fn run_game(
         }
 
         game.init_round(round);
-        run_round(game, &mut event_manager, delay, game_writer, cancel)?;
+        run_round(game, &mut event_manager, delay, &game_writer, cancel)?;
     }
     Ok(())
 }
