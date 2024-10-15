@@ -15,7 +15,7 @@ mod settings;
 use game::*;
 use settings::*;
 
-fn main() -> LuaResult<()> {
+fn main() {
     let (game_writer, game_reader) = mpsc::channel();
     let cancel = Arc::new(AtomicBool::new(false));
     let cancel_ref = cancel.clone();
@@ -51,10 +51,12 @@ fn main() -> LuaResult<()> {
     }
 
     if game_thread.is_finished() {
-        let _ = game_thread.join().unwrap();
+        match game_thread.join().unwrap() {
+            Ok(_) => println!("game finished"),
+            Err(e) => println!("error: {e}"),
+        }
     } else {
         cancel.store(true, std::sync::atomic::Ordering::Relaxed);
         let _ = game_thread.join();
     }
-    Ok(())
 }
