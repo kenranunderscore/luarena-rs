@@ -9,6 +9,15 @@ use rand::Rng;
 use crate::math_utils::{self, Point, Sector, HALF_PI};
 use crate::settings::*;
 
+impl<'a> IntoLua<'a> for Point {
+    fn into_lua(self, lua: &'a Lua) -> LuaResult<LuaValue<'a>> {
+        let t = lua.create_table()?;
+        t.set("x", self.x)?;
+        t.set("y", self.y)?;
+        Ok(LuaValue::Table(t))
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum MovementDirection {
     Forward,
@@ -260,11 +269,11 @@ impl LuaImpl {
             PlayerEvent::Tick(n) => self.call_event_handler("on_tick", *n),
             PlayerEvent::RoundStarted(n) => self.call_event_handler("on_round_started", *n),
             PlayerEvent::EnemySeen(name, pos) => {
-                self.call_event_handler("on_enemy_seen", (name.to_string(), pos.x, pos.y))
+                self.call_event_handler("on_enemy_seen", (name.to_string(), pos.clone()))
             }
             PlayerEvent::HitBy(id) => self.call_event_handler("on_hit_by", *id),
             PlayerEvent::AttackHit(id, pos) => {
-                self.call_event_handler("on_attack_hit", (*id, pos.x, pos.y))
+                self.call_event_handler("on_attack_hit", (*id, pos.clone()))
             }
             PlayerEvent::Death => self.call_event_handler("on_death", ()),
         }
