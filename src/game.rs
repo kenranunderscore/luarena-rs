@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, RwLock, RwLockReadGuard};
@@ -546,7 +547,7 @@ fn register_lua_library(player: &Player, lua_impl: &LuaImpl) -> LuaResult<()> {
     Ok(())
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Attack {
     pub id: usize,
     pub pos: Point,
@@ -676,7 +677,7 @@ fn valid_position(p: &Point) -> bool {
         && p.y <= HEIGHT as f32 - PLAYER_RADIUS
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Delta {
     value: Point,
 }
@@ -687,6 +688,7 @@ impl Delta {
     }
 }
 
+#[derive(Clone, Debug)]
 pub enum GameEvent {
     Tick(u32),
     RoundStarted(u32),
@@ -885,16 +887,19 @@ fn attack_hits_player<'a>(
 
 pub struct EventManager {
     current_events: Vec<GameEvent>,
+    all_events: Vec<GameEvent>,
 }
 
 impl EventManager {
     pub fn new() -> EventManager {
         Self {
             current_events: vec![],
+            all_events: vec![],
         }
     }
 
     pub fn init_tick(&mut self, tick: u32, round: u32) {
+        self.all_events.append(&mut self.current_events.clone());
         self.current_events = tick_events(tick, round);
     }
 
@@ -936,8 +941,8 @@ fn transition_attacks(game: &Game, event_manager: &mut EventManager) {
     }
 }
 
-fn advance_game_state(game: &mut Game, game_events: &[GameEvent]) {
-    for event in game_events.iter() {
+fn advance_game_state(game: &mut Game, events: &[GameEvent]) {
+    for event in events {
         match event {
             GameEvent::Tick(_) => {
                 // FIXME: check whether saving the next tick shooting is
@@ -1209,6 +1214,11 @@ pub fn run_game(
 
         game.init_round(round);
         run_round(game, &mut event_manager, delay, &game_writer, cancel)?;
+    }
+    let mut f = std::fs::File::create("events").unwrap();
+    for event in event_manager.all_events.iter() {
+        let e = format!("{:?}\n", event);
+        f.write(&e.into_bytes()).unwrap();
     }
     Ok(())
 }
