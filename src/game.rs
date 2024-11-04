@@ -6,6 +6,7 @@ use std::sync::{mpsc, Arc, RwLock, RwLockReadGuard};
 
 use mlua::prelude::*;
 use rand::Rng;
+use serde::{Deserialize, Serialize};
 
 use crate::math_utils::{self, Point, Sector, HALF_PI};
 use crate::settings::*;
@@ -547,7 +548,7 @@ fn register_lua_library(player: &Player, lua_impl: &LuaImpl) -> LuaResult<()> {
     Ok(())
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Attack {
     pub id: usize,
     pub pos: Point,
@@ -677,7 +678,7 @@ fn valid_position(p: &Point) -> bool {
         && p.y <= HEIGHT as f32 - PLAYER_RADIUS
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Delta {
     value: Point,
 }
@@ -688,7 +689,7 @@ impl Delta {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum GameEvent {
     Tick(u32),
     RoundStarted(u32),
@@ -1217,7 +1218,7 @@ pub fn run_game(
     }
     let mut f = std::fs::File::create("events").unwrap();
     for event in event_manager.all_events.iter() {
-        let e = format!("{:?}\n", event);
+        let e = serde_json::to_string(&event).unwrap();
         f.write(&e.into_bytes()).unwrap();
     }
     Ok(())
