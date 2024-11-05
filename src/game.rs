@@ -1,3 +1,4 @@
+use core::fmt;
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::Path;
@@ -589,6 +590,24 @@ pub struct Game {
     attack_ids: Ids,
 }
 
+pub struct AddLuaPlayerError {
+    pub message: String,
+}
+
+impl fmt::Display for AddLuaPlayerError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl From<mlua::Error> for AddLuaPlayerError {
+    fn from(err: mlua::Error) -> Self {
+        Self {
+            message: format!("{err}"),
+        }
+    }
+}
+
 impl Game {
     pub fn new() -> Game {
         Self {
@@ -602,7 +621,7 @@ impl Game {
         }
     }
 
-    pub fn add_lua_player(&mut self, player_dir: &Path) -> LuaResult<()> {
+    pub fn add_lua_player(&mut self, player_dir: &Path) -> Result<(), AddLuaPlayerError> {
         let meta = PlayerMeta::from_lua(player_dir)?;
         let lua_impl = load_lua_player(player_dir, &meta)?;
         let id = self.players.len() as u8; // FIXME
@@ -1134,7 +1153,25 @@ fn write_game_data(game: &Game, game_writer: &mpsc::Sender<GameData>) {
     game_writer.send(game_data).unwrap();
 }
 
-fn run_lua_players(game: &mut Game, events: &[GameEvent]) -> LuaResult<()> {
+pub struct LuaPlayerEventError {
+    message: String,
+}
+
+impl fmt::Display for LuaPlayerEventError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl From<mlua::Error> for LuaPlayerEventError {
+    fn from(err: mlua::Error) -> Self {
+        Self {
+            message: format!("{err}"),
+        }
+    }
+}
+
+fn run_lua_players(game: &mut Game, events: &[GameEvent]) -> Result<(), LuaPlayerEventError> {
     // FIXME: learn how to do this in a better way!
     let player_positions: Vec<(u8, String, Point)> = game
         .players
@@ -1188,7 +1225,7 @@ pub fn step(
     game: &mut Game,
     event_manager: &mut EventManager,
     game_writer: &mpsc::Sender<GameData>,
-) -> LuaResult<()> {
+) -> Result<(), GameError> {
     event_manager.init_tick(game.tick);
     check_for_round_end(game, event_manager);
     transition_players(game, event_manager);
@@ -1210,7 +1247,7 @@ pub fn run_round(
     delay: &std::time::Duration,
     game_writer: &mpsc::Sender<GameData>,
     cancel: &Arc<AtomicBool>,
-) -> LuaResult<()> {
+) -> Result<(), GameError> {
     game.init_round(round, event_manager);
     loop {
         if cancel.load(Ordering::Relaxed) {
@@ -1234,12 +1271,40 @@ pub fn run_round(
     Ok(())
 }
 
+pub enum GameError {
+    AddLuaPlayerError(AddLuaPlayerError),
+    LuaPlayerEventError(LuaPlayerEventError),
+}
+
+impl fmt::Display for GameError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            GameError::AddLuaPlayerError(inner) => write!(f, "Player could not be added: {inner}"),
+            GameError::LuaPlayerEventError(inner) => {
+                write!(f, "Communication with player failed: {inner}")
+            }
+        }
+    }
+}
+
+impl From<AddLuaPlayerError> for GameError {
+    fn from(err: AddLuaPlayerError) -> Self {
+        GameError::AddLuaPlayerError(err)
+    }
+}
+
+impl From<LuaPlayerEventError> for GameError {
+    fn from(err: LuaPlayerEventError) -> Self {
+        GameError::LuaPlayerEventError(err)
+    }
+}
+
 pub fn run_game(
     game: &mut Game,
     delay: &std::time::Duration,
     game_writer: mpsc::Sender<GameData>,
     cancel: &Arc<AtomicBool>,
-) -> LuaResult<()> {
+) -> Result<(), GameError> {
     let mut event_manager = EventManager::new();
     let max_rounds = 2;
     for round in 1..max_rounds + 1 {

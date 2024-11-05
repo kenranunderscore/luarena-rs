@@ -4,7 +4,6 @@ use std::{
     time::Duration,
 };
 
-use mlua::prelude::*;
 use raylib::prelude::*;
 
 mod game;
@@ -26,7 +25,7 @@ fn main() {
         .msaa_4x()
         .build();
 
-    let game_thread = std::thread::spawn(move || -> LuaResult<()> {
+    let game_thread = std::thread::spawn(move || -> Result<(), GameError> {
         let mut game = Game::new();
         game.add_lua_player(Path::new("players/kai"))?;
         game.add_lua_player(Path::new("players/lloyd"))?;
