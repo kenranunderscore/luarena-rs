@@ -613,24 +613,28 @@ impl Game {
         Ok(())
     }
 
-    pub fn init_round(&mut self, round: u32) {
-        let mut rng = rand::thread_rng();
+    pub fn init_round(&mut self, round: u32, event_manager: &mut EventManager) {
         self.tick = 0;
         self.round = round;
         self.round_state = RoundState::Ongoing;
         self.attacks = vec![];
-
         let min = PLAYER_RADIUS + 5.0;
         let max_x = WIDTH as f32 - PLAYER_RADIUS - 5.0;
         let max_y = HEIGHT as f32 - PLAYER_RADIUS - 5.0;
+        let mut rng = rand::thread_rng();
+        let mut positions = vec![];
         for player in self.players.iter_mut() {
             // FIXME: don't create collisions
             let random_pos = Point {
                 x: rng.gen_range(min..max_x) as f32,
                 y: rng.gen_range(min..max_y) as f32,
             };
-            player.reset(random_pos);
+            // FIXME: it would be nice to change state later (as with the rest),
+            // but that creates problems with the check for "round over"
+            player.reset(random_pos.clone());
+            positions.push((player.id, random_pos));
         }
+        event_manager.init_round(round, positions);
         for lua_impl in self.lua_impls.iter_mut() {
             *lua_impl.intent.write().unwrap() = Default::default();
         }
@@ -692,7 +696,7 @@ impl Delta {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum GameEvent {
     Tick(u32),
-    RoundStarted(u32),
+    RoundStarted(u32, Vec<(u8, Point)>),
     RoundOver(Option<u8>),
     PlayerHeadTurned(u8, f32),
     PlayerArmsTurned(u8, f32),
@@ -802,8 +806,8 @@ fn game_events_to_player_events(player: &Player, game_events: &[GameEvent]) -> V
             GameEvent::Tick(n) => {
                 player_events.push(PlayerEvent::Tick(*n));
             }
-            GameEvent::RoundStarted(n) => {
-                player_events.push(PlayerEvent::RoundStarted(*n));
+            GameEvent::RoundStarted(round, _) => {
+                player_events.push(PlayerEvent::RoundStarted(*round));
             }
             GameEvent::RoundOver(_) => {}
             GameEvent::PlayerTurned(_, _) => {}
@@ -899,9 +903,36 @@ impl EventManager {
         }
     }
 
-    pub fn init_tick(&mut self, tick: u32, round: u32) {
+    pub fn from_saved_history(file: &Path) -> Option<Self> {
+        let s = std::fs::read_to_string(file).ok()?;
+        let saved = serde_json::from_str(&s);
+        match saved {
+            Ok(all_events) => Some(Self {
+                current_events: vec![],
+                all_events,
+            }),
+            Err(err) => {
+                // FIXME: start *here* with refactoring of error handling
+                println!("error: {err}");
+                None
+            }
+        }
+    }
+
+    pub fn init_round(&mut self, round: u32, positions: Vec<(u8, Point)>) {
         self.all_events.append(&mut self.current_events.clone());
-        self.current_events = tick_events(tick, round);
+        self.current_events = vec![GameEvent::RoundStarted(round, positions)];
+    }
+
+    pub fn init_tick(&mut self, tick: u32) {
+        self.all_events.append(&mut self.current_events.clone());
+        // HACK: find a good solution for the first events in a round
+        let tick_event = GameEvent::Tick(tick);
+        if tick == 0 {
+            self.current_events.push(tick_event);
+        } else {
+            self.current_events = vec![tick_event];
+        }
     }
 
     pub fn record(&mut self, event: GameEvent) {
@@ -911,14 +942,6 @@ impl EventManager {
     pub fn current_events(&self) -> &[GameEvent] {
         &self.current_events
     }
-}
-
-fn tick_events(tick: u32, round: u32) -> Vec<GameEvent> {
-    let mut events = vec![GameEvent::Tick(tick)];
-    if tick == 0 {
-        events.push(GameEvent::RoundStarted(round));
-    }
-    events
 }
 
 fn transition_attacks(game: &Game, event_manager: &mut EventManager) {
@@ -946,6 +969,7 @@ fn advance_game_state(game: &mut Game, events: &[GameEvent]) {
     for event in events {
         match event {
             GameEvent::Tick(_) => {
+                game.tick += 1;
                 // FIXME: check whether saving the next tick shooting is
                 // possible again might be better; but then again we could not
                 // as easily add a Lua getter...
@@ -956,7 +980,7 @@ fn advance_game_state(game: &mut Game, events: &[GameEvent]) {
                     }
                 }
             }
-            GameEvent::RoundStarted(_) => {}
+            GameEvent::RoundStarted(_, _) => {}
             GameEvent::RoundOver(winner) => {
                 game.round_state = match winner {
                     Some(winner) => RoundState::Won(*winner),
@@ -1072,13 +1096,24 @@ impl GameData {
 fn check_for_round_end(game: &Game, event_manager: &mut EventManager) {
     let nplayers = game.living_players().count();
     match nplayers {
-        0 => event_manager.record(GameEvent::RoundOver(None)),
-        1 => event_manager.record(GameEvent::RoundOver(Some(
-            game.living_players().nth(0).unwrap().id,
-        ))),
+        0 => {
+            println!("none");
+            event_manager.record(GameEvent::RoundOver(None));
+        }
+        1 => {
+            println!("some");
+            event_manager.record(GameEvent::RoundOver(Some(
+                game.living_players().nth(0).unwrap().id,
+            )));
+        }
         _ => {}
     }
 }
+
+// NOOOOOOOOOOOOOOOOOOOOOOOOOOOO
+// FACT: The whole point of replays is to be *watched*, so we only need to render those
+// ==> don't need to transition or update any state, just use the one rendering thread and
+//     slightly delay events!
 
 fn write_game_data(game: &Game, game_writer: &mpsc::Sender<GameData>) {
     let mut game_data = GameData::new();
@@ -1154,7 +1189,7 @@ pub fn step(
     event_manager: &mut EventManager,
     game_writer: &mpsc::Sender<GameData>,
 ) -> LuaResult<()> {
-    event_manager.init_tick(game.tick, game.round);
+    event_manager.init_tick(game.tick);
     check_for_round_end(game, event_manager);
     transition_players(game, event_manager);
     create_attacks(game, event_manager);
@@ -1165,18 +1200,18 @@ pub fn step(
     run_lua_players(game, game_events)?;
 
     write_game_data(&game, game_writer);
-
-    game.tick += 1;
     Ok(())
 }
 
 pub fn run_round(
     game: &mut Game,
+    round: u32,
     event_manager: &mut EventManager,
     delay: &std::time::Duration,
     game_writer: &mpsc::Sender<GameData>,
     cancel: &Arc<AtomicBool>,
 ) -> LuaResult<()> {
+    game.init_round(round, event_manager);
     loop {
         if cancel.load(Ordering::Relaxed) {
             break;
@@ -1212,15 +1247,11 @@ pub fn run_game(
             println!("Game cancelled");
             break;
         }
-
-        game.init_round(round);
-        run_round(game, &mut event_manager, delay, &game_writer, cancel)?;
+        run_round(game, round, &mut event_manager, delay, &game_writer, cancel)?;
     }
     let mut f = std::fs::File::create("events").unwrap();
-    for event in event_manager.all_events.iter() {
-        let e = serde_json::to_string(&event).unwrap();
-        f.write(&e.into_bytes()).unwrap();
-    }
+    let serialized_events = serde_json::to_string(&event_manager.all_events).unwrap();
+    f.write(&serialized_events.into_bytes()).unwrap();
     Ok(())
 }
 
