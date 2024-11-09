@@ -24,10 +24,10 @@ struct PlayerData {
 }
 
 impl PlayerData {
-    fn new(id: u8, p: &Point) -> Self {
+    fn new(id: u8, color: crate::game::Color, p: &Point) -> Self {
         Self {
             id,
-            color: Color::RED,
+            color: to_raylib_color(&color),
             x: p.x,
             y: p.y,
             heading: 0.0,
@@ -164,10 +164,12 @@ impl<'a> GameRenderer<'a> {
     fn process_event(&mut self, d: &mut RaylibDrawHandle, event: GameEvent) {
         match event {
             GameEvent::Tick(_) => {}
-            GameEvent::RoundStarted(_, player_positions) => {
+            GameEvent::RoundStarted(_, players) => {
                 self.state.players = vec![];
-                for (id, pos) in player_positions {
-                    self.state.players.push(PlayerData::new(id, &pos));
+                for (id, pos, meta) in players {
+                    self.state
+                        .players
+                        .push(PlayerData::new(id, meta.color, &pos));
                 }
             }
             GameEvent::RoundOver(_) => {}

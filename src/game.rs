@@ -170,7 +170,7 @@ impl<'a> IntoLua<'a> for PlayerCommand {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Color {
     pub red: u8,
     pub green: u8,
@@ -195,6 +195,7 @@ impl<'a> FromLua<'a> for Color {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlayerMeta {
     pub name: String,
     pub color: Color,
@@ -641,7 +642,7 @@ impl Game {
         let max_x = WIDTH as f32 - PLAYER_RADIUS - 5.0;
         let max_y = HEIGHT as f32 - PLAYER_RADIUS - 5.0;
         let mut rng = rand::thread_rng();
-        let mut positions = vec![];
+        let mut players = vec![];
         for player in self.players.iter_mut() {
             // FIXME: don't create collisions
             let random_pos = Point {
@@ -651,9 +652,9 @@ impl Game {
             // FIXME: it would be nice to change state later (as with the rest),
             // but that creates problems with the check for "round over"
             player.reset(random_pos.clone());
-            positions.push((player.id, random_pos));
+            players.push((player.id, random_pos, player.meta.clone()));
         }
-        event_manager.init_round(round, positions);
+        event_manager.init_round(round, players);
         for lua_impl in self.lua_impls.iter_mut() {
             *lua_impl.intent.write().unwrap() = Default::default();
         }
@@ -715,8 +716,7 @@ impl Delta {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum GameEvent {
     Tick(u32),
-    // FIXME: put PlayerMeta here
-    RoundStarted(u32, Vec<(u8, Point)>),
+    RoundStarted(u32, Vec<(u8, Point, PlayerMeta)>),
     RoundOver(Option<u8>),
     PlayerHeadTurned(u8, f32),
     PlayerArmsTurned(u8, f32),
@@ -939,9 +939,9 @@ impl EventManager {
         }
     }
 
-    pub fn init_round(&mut self, round: u32, positions: Vec<(u8, Point)>) {
+    pub fn init_round(&mut self, round: u32, players: Vec<(u8, Point, PlayerMeta)>) {
         self.all_events.append(&mut self.current_events.clone());
-        self.current_events = vec![GameEvent::RoundStarted(round, positions)];
+        self.current_events = vec![GameEvent::RoundStarted(round, players)];
     }
 
     pub fn init_tick(&mut self, tick: u32) {
