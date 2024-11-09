@@ -703,7 +703,7 @@ fn valid_position(p: &Point) -> bool {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Delta {
-    value: Point,
+    pub value: Point,
 }
 
 impl Delta {
@@ -715,6 +715,7 @@ impl Delta {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum GameEvent {
     Tick(u32),
+    // FIXME: put PlayerMeta here
     RoundStarted(u32, Vec<(u8, Point)>),
     RoundOver(Option<u8>),
     PlayerHeadTurned(u8, f32),
@@ -1089,29 +1090,6 @@ fn advance_game_state(game: &mut Game, events: &[GameEvent]) {
     }
 }
 
-pub struct PlayerData {
-    pub color: crate::game::Color,
-    pub x: i32,
-    pub y: i32,
-    pub heading: f32,
-    pub head_heading: f32,
-    pub arms_heading: f32,
-}
-
-pub struct GameData {
-    pub players: Vec<PlayerData>,
-    pub attacks: Vec<Point>,
-}
-
-impl GameData {
-    pub fn new() -> Self {
-        Self {
-            players: Vec::new(),
-            attacks: Vec::new(),
-        }
-    }
-}
-
 fn check_for_round_end(game: &Game, event_manager: &mut EventManager) {
     let nplayers = game.living_players().count();
     match nplayers {
@@ -1127,30 +1105,6 @@ fn check_for_round_end(game: &Game, event_manager: &mut EventManager) {
         }
         _ => {}
     }
-}
-
-// NOOOOOOOOOOOOOOOOOOOOOOOOOOOO
-// FACT: The whole point of replays is to be *watched*, so we only need to render those
-// ==> don't need to transition or update any state, just use the one rendering thread and
-//     slightly delay events!
-
-fn write_game_data(game: &Game, game_writer: &mpsc::Sender<GameData>) {
-    let mut game_data = GameData::new();
-    for player in game.living_players() {
-        let p = player.pos();
-        game_data.players.push(PlayerData {
-            color: player.meta.color.clone(),
-            x: p.x.round() as i32,
-            y: p.y.round() as i32,
-            heading: *player.heading.read().unwrap(),
-            head_heading: player.effective_head_heading(),
-            arms_heading: player.effective_arms_heading(),
-        });
-    }
-    for attack in game.attacks.iter() {
-        game_data.attacks.push(attack.pos.clone());
-    }
-    game_writer.send(game_data).unwrap();
 }
 
 pub struct LuaPlayerEventError {
@@ -1221,10 +1175,22 @@ fn run_lua_players(game: &mut Game, events: &[GameEvent]) -> Result<(), LuaPlaye
     Ok(())
 }
 
+pub struct StepEvents {
+    pub events: Vec<GameEvent>,
+}
+
+impl StepEvents {
+    pub fn from_slice(evts: &[GameEvent]) -> Self {
+        let mut events = Vec::new();
+        events.extend_from_slice(&evts);
+        Self { events }
+    }
+}
+
 pub fn step(
     game: &mut Game,
     event_manager: &mut EventManager,
-    game_writer: &mpsc::Sender<GameData>,
+    game_writer: &mpsc::Sender<StepEvents>,
 ) -> Result<(), GameError> {
     event_manager.init_tick(game.tick);
     check_for_round_end(game, event_manager);
@@ -1236,7 +1202,8 @@ pub fn step(
     advance_game_state(game, game_events);
     run_lua_players(game, game_events)?;
 
-    write_game_data(&game, game_writer);
+    let step_events = StepEvents::from_slice(game_events);
+    game_writer.send(step_events).unwrap();
     Ok(())
 }
 
@@ -1245,7 +1212,7 @@ pub fn run_round(
     round: u32,
     event_manager: &mut EventManager,
     delay: &std::time::Duration,
-    game_writer: &mpsc::Sender<GameData>,
+    game_writer: &mpsc::Sender<StepEvents>,
     cancel: &Arc<AtomicBool>,
 ) -> Result<(), GameError> {
     game.init_round(round, event_manager);
@@ -1302,7 +1269,7 @@ impl From<LuaPlayerEventError> for GameError {
 pub fn run_game(
     game: &mut Game,
     delay: &std::time::Duration,
-    game_writer: mpsc::Sender<GameData>,
+    game_writer: mpsc::Sender<StepEvents>,
     cancel: &Arc<AtomicBool>,
 ) -> Result<(), GameError> {
     let mut event_manager = EventManager::new();

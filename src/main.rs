@@ -12,6 +12,7 @@ mod render;
 mod settings;
 
 use game::*;
+use render::GameRenderer;
 use settings::*;
 
 fn main() {
@@ -34,19 +35,10 @@ fn main() {
         run_game(&mut game, &delay, game_writer, &cancel_ref)
     });
 
-    rl.set_target_fps(60);
-    let mut latest_data = None;
+    // rl.set_target_fps(60);
+    let mut renderer = GameRenderer::new(&game_reader);
     while !rl.window_should_close() && !game_thread.is_finished() {
-        let mut d = rl.begin_drawing(&thread);
-        d.draw_fps(5, 5);
-
-        while let Ok(data) = game_reader.try_recv() {
-            latest_data = Some(data);
-        }
-        d.clear_background(raylib::prelude::Color::BLACK);
-        if let Some(data) = &latest_data {
-            render::game(&mut d, &data);
-        }
+        renderer.step(&mut rl, &thread);
     }
 
     if game_thread.is_finished() {
