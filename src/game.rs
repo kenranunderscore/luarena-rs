@@ -1,6 +1,5 @@
 use core::fmt;
 use std::collections::HashMap;
-use std::io::Write;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, RwLock, RwLockReadGuard};
@@ -911,55 +910,40 @@ fn attack_hits_player<'a>(
 }
 
 pub struct EventManager {
-    current_events: Vec<GameEvent>,
-    all_events: Vec<GameEvent>,
+    current_events: StepEvents,
+    all_events: Vec<StepEvents>,
 }
 
 impl EventManager {
     pub fn new() -> EventManager {
         Self {
-            current_events: vec![],
+            current_events: StepEvents::new(),
             all_events: vec![],
         }
     }
 
-    pub fn from_saved_history(file: &Path) -> Option<Self> {
-        let f = std::fs::File::open(file).ok()?;
-        let saved = serde_cbor::from_reader(f);
-        match saved {
-            Ok(all_events) => Some(Self {
-                current_events: vec![],
-                all_events,
-            }),
-            Err(err) => {
-                // FIXME: start *here* with refactoring of error handling
-                println!("error: {err}");
-                None
-            }
-        }
-    }
-
     pub fn init_round(&mut self, round: u32, players: Vec<(u8, Point, PlayerMeta)>) {
-        self.all_events.append(&mut self.current_events.clone());
-        self.current_events = vec![GameEvent::RoundStarted(round, players)];
+        self.all_events.push(self.current_events.clone());
+        self.current_events =
+            StepEvents::from_slice(&vec![GameEvent::RoundStarted(round, players)]);
     }
 
     pub fn init_tick(&mut self, tick: u32) {
-        self.all_events.append(&mut self.current_events.clone());
+        self.all_events.push(self.current_events.clone());
         // HACK: find a good solution for the first events in a round
         let tick_event = GameEvent::Tick(tick);
         if tick == 0 {
-            self.current_events.push(tick_event);
+            self.record(tick_event);
         } else {
-            self.current_events = vec![tick_event];
+            self.current_events.events = vec![tick_event];
         }
     }
 
     pub fn record(&mut self, event: GameEvent) {
-        self.current_events.push(event);
+        self.current_events.events.push(event);
     }
 
-    pub fn current_events(&self) -> &[GameEvent] {
+    pub fn current_events(&self) -> &StepEvents {
         &self.current_events
     }
 }
@@ -1175,11 +1159,16 @@ fn run_lua_players(game: &mut Game, events: &[GameEvent]) -> Result<(), LuaPlaye
     Ok(())
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct StepEvents {
     pub events: Vec<GameEvent>,
 }
 
 impl StepEvents {
+    pub fn new() -> Self {
+        Self { events: vec![] }
+    }
+
     pub fn from_slice(evts: &[GameEvent]) -> Self {
         let mut events = Vec::new();
         events.extend_from_slice(&evts);
@@ -1198,12 +1187,11 @@ pub fn step(
     create_attacks(game, event_manager);
     transition_attacks(game, event_manager);
 
-    let game_events: &[GameEvent] = event_manager.current_events();
-    advance_game_state(game, game_events);
-    run_lua_players(game, game_events)?;
+    let step_events: &StepEvents = &event_manager.current_events();
+    advance_game_state(game, &step_events.events);
+    run_lua_players(game, &step_events.events)?;
 
-    let step_events = StepEvents::from_slice(game_events);
-    game_writer.send(step_events).unwrap();
+    game_writer.send(step_events.clone()).unwrap();
     Ok(())
 }
 

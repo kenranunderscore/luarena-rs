@@ -1,10 +1,12 @@
 use std::{
     path::Path,
-    sync::{atomic::AtomicBool, mpsc, Arc},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc::{self, Sender},
+        Arc,
+    },
     time::Duration,
 };
-
-use raylib::prelude::*;
 
 mod game;
 mod math_utils;
@@ -14,6 +16,27 @@ mod settings;
 use game::*;
 use render::GameRenderer;
 use settings::*;
+
+fn run_replay(
+    history_file: &Path,
+    sender: Sender<StepEvents>,
+    delay: &Duration,
+    cancel: &Arc<AtomicBool>,
+) -> Option<()> {
+    let f = std::fs::File::open(history_file).ok()?;
+    let steps: Vec<StepEvents> = serde_cbor::from_reader(f).ok()?;
+    for step_events in steps {
+        if cancel.load(Ordering::Relaxed) {
+            break;
+        }
+
+        sender
+            .send(step_events)
+            .expect("Failed sending step events");
+        std::thread::sleep(*delay);
+    }
+    Some(())
+}
 
 fn main() {
     let (game_writer, game_reader) = mpsc::channel();
@@ -32,10 +55,11 @@ fn main() {
         game.add_lua_player(Path::new("players/lloyd"))?;
 
         let delay = Duration::from_millis(7);
-        run_game(&mut game, &delay, game_writer, &cancel_ref)
+        // run_replay(Path::new("events"), game_writer, &delay, &cancel_ref).unwrap();
+        run_game(&mut game, &delay, game_writer, &cancel_ref)?;
+        Ok(())
     });
 
-    // rl.set_target_fps(60);
     let mut renderer = GameRenderer::new(&game_reader);
     while !rl.window_should_close() && !game_thread.is_finished() {
         renderer.step(&mut rl, &thread);
