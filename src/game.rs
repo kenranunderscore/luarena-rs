@@ -924,8 +924,8 @@ impl EventManager {
     }
 
     pub fn from_saved_history(file: &Path) -> Option<Self> {
-        let s = std::fs::read_to_string(file).ok()?;
-        let saved = serde_json::from_str(&s);
+        let f = std::fs::File::open(file).ok()?;
+        let saved = serde_cbor::from_reader(f);
         match saved {
             Ok(all_events) => Some(Self {
                 current_events: vec![],
@@ -1281,9 +1281,8 @@ pub fn run_game(
         }
         run_round(game, round, &mut event_manager, delay, &game_writer, cancel)?;
     }
-    let mut f = std::fs::File::create("events").unwrap();
-    let serialized_events = serde_json::to_string(&event_manager.all_events).unwrap();
-    f.write(&serialized_events.into_bytes()).unwrap();
+    let f = std::fs::File::create("events").unwrap();
+    serde_cbor::to_writer(f, &event_manager.all_events);
     Ok(())
 }
 
