@@ -31,7 +31,7 @@ end
 
 function m.on_enemy_seen(name, p)
    locked = true
-   angle = math.atan2(p.y - me.y(), p.x - me.x()) + math.pi / 2
+   angle = math.atan(p.y - me.y(), p.x - me.x()) + math.pi / 2
    a = utils.normalize_relative_angle(angle - me.heading())
    res = { me.turn(a) }
    if me.turn_remaining() < 0.05 and math.abs(a) < 0.05 and me.attack_cooldown() == 0 then

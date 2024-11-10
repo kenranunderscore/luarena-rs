@@ -13,7 +13,7 @@ function m.on_hit_by(id)
 end
 
 function m.on_enemy_seen(name, p)
-   angle = math.atan2(p.y - me.y(), p.x - me.x()) + math.pi / 2
+   angle = math.atan(p.y - me.y(), p.x - me.x()) + math.pi / 2
    a = utils.normalize_relative_angle(angle - me.heading())
    if math.abs(a) < 0.02 and me.attack_cooldown() == 0 then
       me.log("[lloyd] angle = " .. a)
