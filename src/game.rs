@@ -1270,7 +1270,7 @@ pub fn run_game(
         run_round(game, round, &mut event_manager, delay, &game_writer, cancel)?;
     }
     let f = std::fs::File::create("events").unwrap();
-    serde_cbor::to_writer(f, &event_manager.all_events);
+    ciborium::into_writer(&event_manager.all_events, &f).unwrap();
     Ok(())
 }
 

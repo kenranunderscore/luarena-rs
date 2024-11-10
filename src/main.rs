@@ -24,7 +24,7 @@ fn run_replay(
     cancel: &Arc<AtomicBool>,
 ) -> Option<()> {
     let f = std::fs::File::open(history_file).ok()?;
-    let steps: Vec<StepEvents> = serde_cbor::from_reader(f).ok()?;
+    let steps: Vec<StepEvents> = ciborium::from_reader(f).ok()?;
     for step_events in steps {
         if cancel.load(Ordering::Relaxed) {
             break;
