@@ -1,0 +1,35 @@
+package luarena:player;
+
+interface handlers {
+    enum movement-direction {
+        forward,
+        backward,
+        left,
+        right,
+    }
+
+    record movement {
+        direction: movement-direction,
+        distance: f32,
+    }
+
+    variant player-command {
+        move(movement),
+        attack,
+        turn(f32),
+        turn-head(f32),
+        turn-arms(f32),
+    }
+
+    record point {
+        x: f32,
+        y: f32,
+    }
+
+    on-tick: func(n: u32) -> list<player-command>;
+    on-enemy-seen: func(p: point) -> list<player-command>;
+}
+
+world player {
+    export handlers;
+}
