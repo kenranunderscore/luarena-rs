@@ -9,6 +9,9 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 
 use crate::math_utils::{self, Point, Sector, HALF_PI};
+use crate::player::{
+    MovementDirection, PlayerCommand, PlayerCommands, PlayerEvent, PlayerEventError, PlayerImpl,
+};
 use crate::settings::*;
 
 impl<'a> IntoLua<'a> for Point {
@@ -18,14 +21,6 @@ impl<'a> IntoLua<'a> for Point {
         t.set("y", self.y)?;
         Ok(LuaValue::Table(t))
     }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum MovementDirection {
-    Forward,
-    Backward,
-    Left,
-    Right,
 }
 
 impl<'a> FromLua<'a> for MovementDirection {
@@ -59,27 +54,6 @@ impl<'a> IntoLua<'a> for MovementDirection {
     }
 }
 
-#[derive(PartialEq, Debug)]
-pub enum PlayerCommand {
-    Move(MovementDirection, f32),
-    Attack,
-    Turn(f32),
-    TurnHead(f32),
-    TurnArms(f32),
-}
-
-impl PlayerCommand {
-    fn index(&self) -> i32 {
-        match self {
-            PlayerCommand::Move(_, _) => 0,
-            PlayerCommand::Attack => 1,
-            PlayerCommand::Turn(_) => 2,
-            PlayerCommand::TurnHead(_) => 3,
-            PlayerCommand::TurnArms(_) => 4,
-        }
-    }
-}
-
 impl<'a> FromLua<'a> for PlayerCommand {
     fn from_lua(value: LuaValue<'a>, _lua: &'a Lua) -> LuaResult<Self> {
         match value {
@@ -101,22 +75,6 @@ impl<'a> FromLua<'a> for PlayerCommand {
                 message: Some("expected valid player command".to_string()),
             }),
         }
-    }
-}
-
-pub struct PlayerCommands {
-    value: Vec<PlayerCommand>,
-}
-
-impl PlayerCommands {
-    fn none() -> Self {
-        Self { value: vec![] }
-    }
-}
-
-impl From<Vec<PlayerCommand>> for PlayerCommands {
-    fn from(value: Vec<PlayerCommand>) -> Self {
-        Self { value }
     }
 }
 
@@ -227,10 +185,6 @@ impl PlayerMeta {
 pub struct LuaImpl {
     lua: Lua,
     key: LuaRegistryKey,
-}
-
-pub trait PlayerImpl {
-    fn on_event(&self, event: &PlayerEvent) -> Result<PlayerCommands, PlayerEventError>;
 }
 
 impl LuaImpl {
@@ -827,16 +781,6 @@ fn players_collide(p: &Point, q: &Point) -> bool {
     p.dist(q) <= 2.0 * (PLAYER_RADIUS as f32)
 }
 
-#[derive(Debug)]
-pub enum PlayerEvent {
-    Tick(u32),
-    RoundStarted(u32),
-    EnemySeen(String, Point),
-    Death,
-    HitBy(u8),
-    AttackHit(u8, Point),
-}
-
 fn game_events_to_player_events(
     player: &PlayerState,
     game_events: &[GameEvent],
@@ -1110,17 +1054,6 @@ fn check_for_round_end(game: &Game, event_manager: &mut EventManager) {
             )));
         }
         _ => {}
-    }
-}
-
-#[derive(Debug)]
-pub struct PlayerEventError {
-    message: String,
-}
-
-impl fmt::Display for PlayerEventError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.message)
     }
 }
 

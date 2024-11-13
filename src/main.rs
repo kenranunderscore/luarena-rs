@@ -14,6 +14,7 @@ use settings::*;
 
 mod game;
 mod math_utils;
+mod player;
 mod render;
 mod settings;
 
