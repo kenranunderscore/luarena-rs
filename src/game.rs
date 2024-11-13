@@ -227,7 +227,10 @@ impl PlayerMeta {
 pub struct LuaImpl {
     lua: Lua,
     key: LuaRegistryKey,
-    intent: ReadableFromLua<PlayerIntent>,
+}
+
+pub trait PlayerImpl {
+    fn on_event(&self, event: &PlayerEvent) -> Result<PlayerCommands, PlayerEventError>;
 }
 
 impl LuaImpl {
@@ -242,12 +245,7 @@ impl LuaImpl {
         Ok(Self {
             lua,
             key: table_key,
-            intent: Default::default(),
         })
-    }
-
-    fn intent(&self) -> RwLockReadGuard<'_, PlayerIntent> {
-        self.intent.read().unwrap()
     }
 
     fn table(&self) -> LuaResult<LuaTable> {
@@ -255,19 +253,22 @@ impl LuaImpl {
         Ok(t)
     }
 
-    fn call_event_handler<A>(&self, name: &str, args: A) -> LuaResult<PlayerCommands>
+    fn call_event_handler<A>(&self, name: &str, args: A) -> Result<PlayerCommands, PlayerEventError>
     where
         A: for<'a> IntoLuaMulti<'a>,
     {
         let t = self.table()?;
-        if t.contains_key(name)? {
-            t.call_function(name, args)
+        let res = if t.contains_key(name)? {
+            t.call_function(name, args)?
         } else {
-            Ok(PlayerCommands::none())
-        }
+            PlayerCommands::none()
+        };
+        Ok(res)
     }
+}
 
-    pub fn on_event(&self, event: &PlayerEvent) -> LuaResult<PlayerCommands> {
+impl PlayerImpl for LuaImpl {
+    fn on_event(&self, event: &PlayerEvent) -> Result<PlayerCommands, PlayerEventError> {
         match event {
             PlayerEvent::Tick(n) => self.call_event_handler("on_tick", *n),
             PlayerEvent::RoundStarted(n) => self.call_event_handler("on_round_started", *n),
@@ -283,7 +284,7 @@ impl LuaImpl {
     }
 }
 
-struct PlayerIntent {
+pub struct PlayerIntent {
     direction: MovementDirection,
     distance: f32,
     attack: bool,
@@ -305,20 +306,20 @@ impl Default for PlayerIntent {
     }
 }
 
-type ReadableFromLua<T> = Arc<RwLock<T>>;
+type ReadableFromImpl<T> = Arc<RwLock<T>>;
 
-pub struct Player {
+pub struct PlayerState {
     pub id: u8,
-    pub hp: ReadableFromLua<f32>,
+    pub hp: ReadableFromImpl<f32>,
     pub meta: PlayerMeta,
-    pub pos: ReadableFromLua<Point>,
-    pub heading: ReadableFromLua<f32>,
-    pub head_heading: ReadableFromLua<f32>,
-    pub arms_heading: ReadableFromLua<f32>,
-    pub attack_cooldown: ReadableFromLua<u8>,
+    pub pos: ReadableFromImpl<Point>,
+    pub heading: ReadableFromImpl<f32>,
+    pub head_heading: ReadableFromImpl<f32>,
+    pub arms_heading: ReadableFromImpl<f32>,
+    pub attack_cooldown: ReadableFromImpl<u8>,
 }
 
-impl Player {
+impl PlayerState {
     pub fn new(meta: PlayerMeta, id: u8) -> Self {
         Self {
             id,
@@ -375,7 +376,7 @@ impl Player {
         *self.hp.read().unwrap()
     }
 
-    pub fn pos(&self) -> RwLockReadGuard<'_, Point> {
+    pub fn pos(&self) -> RwLockReadGuard<Point> {
         self.pos.read().unwrap()
     }
 
@@ -401,12 +402,11 @@ impl Player {
 }
 
 fn register_player_state_accessors(
-    player: &Player,
+    player: &PlayerState,
     t: &mut LuaTable,
-    lua_impl: &LuaImpl,
+    lua: &Lua,
+    intent: &ReadableFromImpl<PlayerIntent>,
 ) -> LuaResult<()> {
-    let lua = &lua_impl.lua;
-
     // Each accessor needs its own reference to the data, that's why we need to
     // clone the Arcs multiple times
     let r = Arc::clone(&player.pos);
@@ -451,19 +451,19 @@ fn register_player_state_accessors(
         lua.create_function(move |_, _: ()| Ok(*r.read().unwrap()))?,
     )?;
 
-    let r = Arc::clone(&lua_impl.intent);
+    let r = Arc::clone(&intent);
     t.set(
         "turn_remaining",
         lua.create_function(move |_, _: ()| Ok(r.read().unwrap().turn_angle))?,
     )?;
 
-    let r = Arc::clone(&lua_impl.intent);
+    let r = Arc::clone(&intent);
     t.set(
         "head_turn_remaining",
         lua.create_function(move |_, _: ()| Ok(r.read().unwrap().turn_head_angle))?,
     )?;
 
-    let r = Arc::clone(&lua_impl.intent);
+    let r = Arc::clone(&intent);
     t.set(
         "arms_turn_remaining",
         lua.create_function(move |_, _: ()| Ok(r.read().unwrap().turn_arms_angle))?,
@@ -539,10 +539,13 @@ fn register_utils(lua: &Lua) -> LuaResult<()> {
     Ok(())
 }
 
-fn register_lua_library(player: &Player, lua_impl: &LuaImpl) -> LuaResult<()> {
-    let lua = &lua_impl.lua;
+fn register_lua_library(
+    player: &PlayerState,
+    lua: &Lua,
+    intent: &ReadableFromImpl<PlayerIntent>,
+) -> LuaResult<()> {
     let mut me = lua.create_table()?;
-    register_player_state_accessors(player, &mut me, &lua_impl)?;
+    register_player_state_accessors(player, &mut me, &lua, intent)?;
     register_player_commands(&mut me, lua)?;
     lua.globals().set("me", me)?;
     register_utils(lua)?;
@@ -580,11 +583,22 @@ pub enum RoundState {
     Draw,
 }
 
+pub struct Player {
+    implementation: Box<dyn PlayerImpl>,
+    intent: ReadableFromImpl<PlayerIntent>,
+}
+
+impl Player {
+    pub fn intent(&self) -> RwLockReadGuard<PlayerIntent> {
+        self.intent.read().unwrap()
+    }
+}
+
 pub struct Game {
     pub tick: u32,
     pub round: u32,
-    pub players: Vec<Player>,
-    pub lua_impls: Vec<LuaImpl>,
+    pub player_states: HashMap<u8, PlayerState>,
+    pub impls: HashMap<u8, Player>,
     pub attacks: Vec<Attack>,
     pub round_state: RoundState,
     attack_ids: Ids,
@@ -613,8 +627,8 @@ impl Game {
         Self {
             tick: 0,
             round: 1,
-            players: vec![],
-            lua_impls: vec![],
+            player_states: HashMap::new(),
+            impls: HashMap::new(),
             attacks: vec![],
             attack_ids: Ids::new(),
             round_state: RoundState::Ongoing,
@@ -624,11 +638,18 @@ impl Game {
     pub fn add_lua_player(&mut self, player_dir: &Path) -> Result<(), AddLuaPlayerError> {
         let meta = PlayerMeta::from_lua(player_dir)?;
         let lua_impl = load_lua_player(player_dir, &meta)?;
-        let id = self.players.len() as u8; // FIXME
-        let player = Player::new(meta, id);
-        register_lua_library(&player, &lua_impl)?;
-        self.players.push(player);
-        self.lua_impls.push(lua_impl);
+        let id = self.player_states.len() as u8; // FIXME
+        let player_state = PlayerState::new(meta, id);
+        let intent = Arc::new(RwLock::new(PlayerIntent::default()));
+        register_lua_library(&player_state, &lua_impl.lua, &intent)?;
+        self.player_states.insert(player_state.id, player_state);
+        self.impls.insert(
+            id,
+            Player {
+                implementation: Box::new(lua_impl),
+                intent,
+            },
+        );
         Ok(())
     }
 
@@ -642,7 +663,7 @@ impl Game {
         let max_y = HEIGHT as f32 - PLAYER_RADIUS - 5.0;
         let mut rng = rand::thread_rng();
         let mut players = vec![];
-        for player in self.players.iter_mut() {
+        for (_, player_state) in self.player_states.iter_mut() {
             // FIXME: don't create collisions
             let random_pos = Point {
                 x: rng.gen_range(min..max_x) as f32,
@@ -650,22 +671,22 @@ impl Game {
             };
             // FIXME: it would be nice to change state later (as with the rest),
             // but that creates problems with the check for "round over"
-            player.reset(random_pos.clone());
-            players.push((player.id, random_pos, player.meta.clone()));
+            player_state.reset(random_pos.clone());
+            players.push((player_state.id, random_pos, player_state.meta.clone()));
         }
         event_manager.init_round(round, players);
-        for lua_impl in self.lua_impls.iter_mut() {
-            *lua_impl.intent.write().unwrap() = Default::default();
+        for (_, player) in self.impls.iter_mut() {
+            *player.intent.write().unwrap() = Default::default();
         }
     }
 
-    pub fn living_players(&self) -> impl Iterator<Item = &Player> {
-        self.players.iter().filter(|player| player.alive())
+    pub fn living_players(&self) -> impl Iterator<Item = &PlayerState> {
+        self.player_states.values().filter(|player| player.alive())
     }
 
-    pub fn player(&mut self, id: u8) -> &mut Player {
-        self.players
-            .iter_mut()
+    pub fn player_state(&mut self, id: u8) -> &mut PlayerState {
+        self.player_states
+            .values_mut()
             .find(|player| player.id == id)
             .expect("player {id} not found")
     }
@@ -677,9 +698,8 @@ impl Game {
             .expect("attack {id} not found")
     }
 
-    pub fn lua_impl(&mut self, id: u8) -> &mut LuaImpl {
-        // FIXME: player id should be index
-        &mut self.lua_impls[id as usize]
+    pub fn player(&mut self, id: u8) -> &mut Player {
+        self.impls.get_mut(&id).unwrap()
     }
 }
 
@@ -734,13 +754,14 @@ fn clamp_turn_angle(angle: f32) -> f32 {
 fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
     // TODO: is a HashMap appropriate here? is there a smarter way?
     let mut next_positions: HashMap<u8, (Delta, Point)> = HashMap::new();
-    for (index, player) in game.players.iter().enumerate() {
-        let lua_impl = &game.lua_impls[index];
-        let delta = math_utils::clamp(lua_impl.intent().turn_angle, -MAX_TURN_RATE, MAX_TURN_RATE);
-        event_manager.record(GameEvent::PlayerTurned(player.id, delta));
-        let heading = math_utils::normalize_absolute_angle(*player.heading.read().unwrap() + delta);
-        let velocity = f32::min(lua_impl.intent().distance, MAX_VELOCITY);
-        let dir_heading = match lua_impl.intent().direction {
+    for (id, player_state) in game.player_states.iter() {
+        let player = game.impls.get(id).unwrap();
+        let delta = math_utils::clamp(player.intent().turn_angle, -MAX_TURN_RATE, MAX_TURN_RATE);
+        event_manager.record(GameEvent::PlayerTurned(player_state.id, delta));
+        let heading =
+            math_utils::normalize_absolute_angle(*player_state.heading.read().unwrap() + delta);
+        let velocity = f32::min(player.intent().distance, MAX_VELOCITY);
+        let dir_heading = match player.intent().direction {
             MovementDirection::Forward => 0.0,
             MovementDirection::Backward => math_utils::PI,
             MovementDirection::Left => -HALF_PI,
@@ -750,23 +771,23 @@ fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
         let dx = movement_heading.sin() * velocity;
         let dy = -movement_heading.cos() * velocity;
         let delta = Delta::new(Point { x: dx, y: dy });
-        let pos = player.pos();
+        let pos = player_state.pos();
         let next_pos = pos.add(&delta.value);
         if valid_position(&next_pos) {
-            next_positions.insert(player.id, (delta, next_pos));
+            next_positions.insert(*id, (delta, next_pos));
         } else {
-            next_positions.insert(player.id, (Delta::new(Point::zero()), pos.clone()));
+            next_positions.insert(*id, (Delta::new(Point::zero()), pos.clone()));
         };
 
-        transition_heads(player, lua_impl, event_manager);
-        transition_arms(player, lua_impl, event_manager);
+        transition_heads(player_state, player.intent().turn_head_angle, event_manager);
+        transition_arms(player_state, player.intent().turn_arms_angle, event_manager);
     }
 
-    for player in game.players.iter() {
-        let (delta, next) = next_positions.get(&player.id).unwrap();
+    for player_state in game.player_states.values() {
+        let (delta, next) = next_positions.get(&player_state.id).unwrap();
         let mut collides = false;
         for (other_id, (_, other_next)) in next_positions.iter() {
-            if player.id != *other_id {
+            if player_state.id != *other_id {
                 if players_collide(&next, &other_next) {
                     // TODO: collision event
                     collides = true;
@@ -774,34 +795,32 @@ fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
             }
         }
         let event = if !collides {
-            GameEvent::PlayerPositionUpdated(player.id, delta.clone())
+            GameEvent::PlayerPositionUpdated(player_state.id, delta.clone())
         } else {
-            GameEvent::PlayerPositionUpdated(player.id, Delta::new(Point::zero()))
+            GameEvent::PlayerPositionUpdated(player_state.id, Delta::new(Point::zero()))
         };
         event_manager.record(event);
     }
 }
 
-fn transition_heads(player: &Player, lua_impl: &LuaImpl, event_manager: &mut EventManager) {
-    let delta = math_utils::clamp(
-        lua_impl.intent().turn_head_angle,
-        -MAX_HEAD_TURN_RATE,
-        MAX_HEAD_TURN_RATE,
-    );
-    let current_heading = player.head_heading();
+fn transition_heads(player_state: &PlayerState, turn_angle: f32, event_manager: &mut EventManager) {
+    let delta = math_utils::clamp(turn_angle, -MAX_HEAD_TURN_RATE, MAX_HEAD_TURN_RATE);
+    let current_heading = player_state.head_heading();
     let effective_delta = clamp_turn_angle(current_heading + delta) - current_heading;
-    event_manager.record(GameEvent::PlayerHeadTurned(player.id, effective_delta));
+    event_manager.record(GameEvent::PlayerHeadTurned(
+        player_state.id,
+        effective_delta,
+    ));
 }
 
-fn transition_arms(player: &Player, lua_impl: &LuaImpl, event_manager: &mut EventManager) {
-    let delta = math_utils::clamp(
-        lua_impl.intent().turn_arms_angle,
-        -MAX_ARMS_TURN_RATE,
-        MAX_ARMS_TURN_RATE,
-    );
-    let current_heading = player.arms_heading();
+fn transition_arms(player_state: &PlayerState, turn_angle: f32, event_manager: &mut EventManager) {
+    let delta = math_utils::clamp(turn_angle, -MAX_ARMS_TURN_RATE, MAX_ARMS_TURN_RATE);
+    let current_heading = player_state.arms_heading();
     let effective_delta = clamp_turn_angle(current_heading + delta) - current_heading;
-    event_manager.record(GameEvent::PlayerArmsTurned(player.id, effective_delta));
+    event_manager.record(GameEvent::PlayerArmsTurned(
+        player_state.id,
+        effective_delta,
+    ));
 }
 
 fn players_collide(p: &Point, q: &Point) -> bool {
@@ -818,7 +837,10 @@ pub enum PlayerEvent {
     AttackHit(u8, Point),
 }
 
-fn game_events_to_player_events(player: &Player, game_events: &[GameEvent]) -> Vec<PlayerEvent> {
+fn game_events_to_player_events(
+    player: &PlayerState,
+    game_events: &[GameEvent],
+) -> Vec<PlayerEvent> {
     let mut player_events = Vec::new();
     for event in game_events.iter() {
         match event {
@@ -869,28 +891,28 @@ fn can_spot(
 
 fn dispatch_player_events(
     player_events: Vec<PlayerEvent>,
-    lua_player: &LuaImpl,
-) -> LuaResult<Vec<PlayerCommand>> {
+    player: &Box<dyn PlayerImpl>,
+) -> Result<Vec<PlayerCommand>, PlayerEventError> {
     let mut commands = Vec::new();
     for e in player_events.iter() {
-        commands.append(&mut lua_player.on_event(&e)?.value);
+        commands.append(&mut player.on_event(&e)?.value);
     }
     Ok(commands)
 }
 
 fn create_attacks(game: &mut Game, event_manager: &mut EventManager) {
-    for (index, player) in game.players.iter_mut().enumerate() {
-        let lua_impl = &mut game.lua_impls[index];
-        let will_attack = lua_impl.intent().attack && player.attack_cooldown() == 0;
+    for (id, player_state) in game.player_states.iter_mut() {
+        let player = game.impls.get(id).unwrap();
+        let will_attack = player.intent().attack && player_state.attack_cooldown() == 0;
         if will_attack {
             let attack = Attack {
                 id: game.attack_ids.next(),
-                owner: player.id,
-                pos: player.pos().clone(),
+                owner: *id,
+                pos: player_state.pos().clone(),
                 velocity: 2.5,
-                heading: player.effective_arms_heading(),
+                heading: player_state.effective_arms_heading(),
             };
-            event_manager.record(GameEvent::AttackCreated(player.id, attack));
+            event_manager.record(GameEvent::AttackCreated(*id, attack));
         }
     }
 }
@@ -901,8 +923,8 @@ fn inside_arena(p: &Point) -> bool {
 
 fn attack_hits_player<'a>(
     attack: &Attack,
-    mut players: impl Iterator<Item = &'a Player>,
-) -> Option<&'a Player> {
+    mut players: impl Iterator<Item = &'a PlayerState>,
+) -> Option<&'a PlayerState> {
     players.find(|player| {
         player.id != attack.owner
             && attack.pos.dist(&player.pos()) <= ATTACK_RADIUS + PLAYER_RADIUS as f32
@@ -977,10 +999,10 @@ fn advance_game_state(game: &mut Game, events: &[GameEvent]) {
                 // FIXME: check whether saving the next tick shooting is
                 // possible again might be better; but then again we could not
                 // as easily add a Lua getter...
-                for player in game.players.iter_mut() {
-                    let cd = player.attack_cooldown();
+                for player_state in game.player_states.values_mut() {
+                    let cd = player_state.attack_cooldown();
                     if cd > 0 {
-                        player.set_attack_cooldown(cd - 1);
+                        player_state.set_attack_cooldown(cd - 1);
                     }
                 }
             }
@@ -994,21 +1016,21 @@ fn advance_game_state(game: &mut Game, events: &[GameEvent]) {
             GameEvent::PlayerPositionUpdated(id, delta) => {
                 let d;
                 {
-                    let player = game.player(*id);
+                    let player = game.player_state(*id);
                     let mut pos = player.pos.write().unwrap();
                     d = pos.dist(&Point::zero()); // TODO: length of a Vec2
                     pos.x += delta.value.x;
                     pos.y += delta.value.y;
                 }
-                let lua_impl = game.lua_impl(*id);
+                let lua_impl = game.player(*id);
                 let distance = lua_impl.intent().distance;
                 lua_impl.intent.write().unwrap().distance = f32::max(distance - d, 0.0);
             }
             GameEvent::PlayerTurned(id, delta) => {
-                let player = game.player(*id);
+                let player = game.player_state(*id);
                 let heading = player.heading() + *delta;
                 player.set_heading(math_utils::normalize_absolute_angle(heading));
-                let lua_impl = game.lua_impl(*id);
+                let lua_impl = game.player(*id);
                 let turn_angle = lua_impl.intent().turn_angle;
                 lua_impl.intent.write().unwrap().turn_angle = if turn_angle.abs() < MAX_TURN_RATE {
                     0.0
@@ -1017,10 +1039,10 @@ fn advance_game_state(game: &mut Game, events: &[GameEvent]) {
                 };
             }
             GameEvent::PlayerHeadTurned(id, delta) => {
-                let player = game.player(*id);
+                let player = game.player_state(*id);
                 let heading = player.head_heading() + *delta;
                 player.set_head_heading(heading);
-                let lua_impl = game.lua_impl(*id);
+                let lua_impl = game.player(*id);
                 let intended = lua_impl.intent().turn_head_angle;
                 lua_impl.intent.write().unwrap().turn_head_angle =
                     // FIXME: (here and elsewhere): we don't need this if we
@@ -1032,10 +1054,10 @@ fn advance_game_state(game: &mut Game, events: &[GameEvent]) {
                     };
             }
             GameEvent::PlayerArmsTurned(id, delta) => {
-                let player = game.player(*id);
+                let player = game.player_state(*id);
                 let heading = clamp_turn_angle(player.arms_heading() + *delta);
                 player.set_arms_heading(heading);
-                let lua_impl = game.lua_impl(*id);
+                let lua_impl = game.player(*id);
                 let intended = lua_impl.intent().turn_arms_angle;
                 lua_impl.intent.write().unwrap().turn_arms_angle =
                     if intended.abs() < MAX_ARMS_TURN_RATE {
@@ -1052,7 +1074,7 @@ fn advance_game_state(game: &mut Game, events: &[GameEvent]) {
                 {
                     game.attacks.remove(index);
                 }
-                *game.player(*victim_id).hp.write().unwrap() -= ATTACK_DAMAGE;
+                *game.player_state(*victim_id).hp.write().unwrap() -= ATTACK_DAMAGE;
             }
             GameEvent::AttackAdvanced(id, pos) => {
                 let attack = game.attack(*id);
@@ -1065,9 +1087,9 @@ fn advance_game_state(game: &mut Game, events: &[GameEvent]) {
             }
             GameEvent::AttackCreated(owner, attack) => {
                 game.attacks.push(attack.clone());
-                let player = game.player(*owner);
+                let player = game.player_state(*owner);
                 player.set_attack_cooldown(ATTACK_COOLDOWN);
-                let lua_impl = game.lua_impl(*owner);
+                let lua_impl = game.player(*owner);
                 lua_impl.intent.write().unwrap().attack = false;
             }
         }
@@ -1091,17 +1113,18 @@ fn check_for_round_end(game: &Game, event_manager: &mut EventManager) {
     }
 }
 
-pub struct LuaPlayerEventError {
+#[derive(Debug)]
+pub struct PlayerEventError {
     message: String,
 }
 
-impl fmt::Display for LuaPlayerEventError {
+impl fmt::Display for PlayerEventError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.message)
     }
 }
 
-impl From<mlua::Error> for LuaPlayerEventError {
+impl From<mlua::Error> for PlayerEventError {
     fn from(err: mlua::Error) -> Self {
         Self {
             message: format!("{err}"),
@@ -1109,21 +1132,21 @@ impl From<mlua::Error> for LuaPlayerEventError {
     }
 }
 
-fn run_lua_players(game: &mut Game, events: &[GameEvent]) -> Result<(), LuaPlayerEventError> {
+fn run_players(game: &mut Game, events: &[GameEvent]) -> Result<(), PlayerEventError> {
     // FIXME: learn how to do this in a better way!
     let player_positions: Vec<(u8, String, Point)> = game
-        .players
+        .player_states
         .iter()
-        .map(|player| (player.id, player.meta.name.clone(), player.pos().clone()))
+        .map(|(id, player)| (*id, player.meta.name.clone(), player.pos().clone()))
         .collect();
     // FIXME: only living players?
-    for (index, player) in game.players.iter_mut().enumerate() {
-        let mut player_events = game_events_to_player_events(player, events);
-        for (id, name, pos) in player_positions.iter() {
-            if *id != player.id {
+    for (id, player_state) in game.player_states.iter_mut() {
+        let mut player_events = game_events_to_player_events(player_state, events);
+        for (other_id, name, pos) in player_positions.iter() {
+            if *other_id != player_state.id {
                 if can_spot(
-                    &player.pos(),
-                    player.effective_head_heading(),
+                    &player_state.pos(),
+                    player_state.effective_head_heading(),
                     &pos,
                     PLAYER_RADIUS as f32,
                     ANGLE_OF_VISION,
@@ -1132,26 +1155,26 @@ fn run_lua_players(game: &mut Game, events: &[GameEvent]) -> Result<(), LuaPlaye
                 }
             }
         }
-        let lua_impl = &mut game.lua_impls[index];
-        let mut commands = dispatch_player_events(player_events, lua_impl)?;
+        let player = game.impls.get(id).unwrap();
+        let mut commands = dispatch_player_events(player_events, &player.implementation)?;
         reduce_commands(&mut commands);
         for cmd in commands.iter() {
             match cmd {
-                PlayerCommand::Attack => lua_impl.intent.write().unwrap().attack = true,
-                PlayerCommand::Turn(angle) => lua_impl.intent.write().unwrap().turn_angle = *angle,
+                PlayerCommand::Attack => player.intent.write().unwrap().attack = true,
+                PlayerCommand::Turn(angle) => player.intent.write().unwrap().turn_angle = *angle,
                 PlayerCommand::TurnHead(angle) => {
-                    let current = player.head_heading();
+                    let current = player_state.head_heading();
                     let next = clamp_turn_angle(current + *angle) - current;
-                    lua_impl.intent.write().unwrap().turn_head_angle = next;
+                    player.intent.write().unwrap().turn_head_angle = next;
                 }
                 PlayerCommand::TurnArms(angle) => {
-                    let current = player.arms_heading();
+                    let current = player_state.arms_heading();
                     let next = clamp_turn_angle(current + *angle) - current;
-                    lua_impl.intent.write().unwrap().turn_arms_angle = next;
+                    player.intent.write().unwrap().turn_arms_angle = next;
                 }
                 PlayerCommand::Move(dir, dist) => {
-                    lua_impl.intent.write().unwrap().direction = dir.clone();
-                    lua_impl.intent.write().unwrap().distance = *dist;
+                    player.intent.write().unwrap().direction = dir.clone();
+                    player.intent.write().unwrap().distance = *dist;
                 }
             }
         }
@@ -1189,7 +1212,7 @@ pub fn step(
 
     let step_events: &StepEvents = &event_manager.current_events();
     advance_game_state(game, &step_events.events);
-    run_lua_players(game, &step_events.events)?;
+    run_players(game, &step_events.events)?;
 
     game_writer.send(step_events.clone()).unwrap();
     Ok(())
@@ -1228,7 +1251,7 @@ pub fn run_round(
 
 pub enum GameError {
     AddLuaPlayerError(AddLuaPlayerError),
-    LuaPlayerEventError(LuaPlayerEventError),
+    LuaPlayerEventError(PlayerEventError),
 }
 
 impl fmt::Display for GameError {
@@ -1248,8 +1271,8 @@ impl From<AddLuaPlayerError> for GameError {
     }
 }
 
-impl From<LuaPlayerEventError> for GameError {
-    fn from(err: LuaPlayerEventError) -> Self {
+impl From<PlayerEventError> for GameError {
+    fn from(err: PlayerEventError) -> Self {
         GameError::LuaPlayerEventError(err)
     }
 }

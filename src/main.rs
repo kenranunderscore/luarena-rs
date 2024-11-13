@@ -1,76 +1,77 @@
-use std::{fmt::Display, path::Path};
+use std::{
+    path::Path,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc::{self, Sender},
+        Arc,
+    },
+    time::Duration,
+};
 
-use exports::luarena::player::handlers::{Movement, MovementDirection, PlayerCommand, Point};
-use wasmtime::component::bindgen;
-use wasmtime_wasi::{add_to_linker_sync, ResourceTable, WasiCtx, WasiCtxBuilder, WasiView};
+use game::*;
+use render::GameRenderer;
+use settings::*;
 
 mod game;
 mod math_utils;
 mod render;
 mod settings;
 
-bindgen!("player");
-
-impl Display for MovementDirection {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            MovementDirection::Forward => write!(f, "forward"),
-            MovementDirection::Backward => write!(f, "backward"),
-            MovementDirection::Left => write!(f, "left"),
-            MovementDirection::Right => write!(f, "right"),
+fn _run_replay(
+    history_file: &Path,
+    sender: Sender<StepEvents>,
+    delay: &Duration,
+    cancel: &Arc<AtomicBool>,
+) -> Option<()> {
+    let f = std::fs::File::open(history_file).ok()?;
+    let steps: Vec<StepEvents> = ciborium::from_reader(f).ok()?;
+    for step_events in steps {
+        if cancel.load(Ordering::Relaxed) {
+            break;
         }
+
+        sender
+            .send(step_events)
+            .expect("Failed sending step events");
+        std::thread::sleep(*delay);
     }
+    Some(())
 }
 
-impl Display for PlayerCommand {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            PlayerCommand::Move(movement) => {
-                write!(f, "move: {}, {}", movement.direction, movement.distance)
-            }
-            PlayerCommand::Attack => write!(f, "attack"),
-            PlayerCommand::Turn(angle) => write!(f, "turn {angle}"),
-            PlayerCommand::TurnHead(angle) => write!(f, "turn head {angle}"),
-            PlayerCommand::TurnArms(angle) => write!(f, "turn arms {angle}"),
+fn main() {
+    let (game_writer, game_reader) = mpsc::channel();
+    let cancel = Arc::new(AtomicBool::new(false));
+    let cancel_ref = cancel.clone();
+
+    let (mut rl, thread) = raylib::init()
+        .size(WIDTH, HEIGHT)
+        .title("hello world")
+        .msaa_4x()
+        .build();
+
+    let game_thread = std::thread::spawn(move || -> Result<(), GameError> {
+        let mut game = Game::new();
+        game.add_lua_player(Path::new("players/kai"))?;
+        game.add_lua_player(Path::new("players/lloyd"))?;
+
+        let delay = Duration::from_millis(7);
+        // run_replay(Path::new("events"), game_writer, &delay, &cancel_ref).unwrap();
+        run_game(&mut game, &delay, game_writer, &cancel_ref)?;
+        Ok(())
+    });
+
+    let mut renderer = GameRenderer::new(&game_reader);
+    while !rl.window_should_close() && !game_thread.is_finished() {
+        renderer.step(&mut rl, &thread);
+    }
+
+    if game_thread.is_finished() {
+        match game_thread.join().unwrap() {
+            Ok(_) => println!("game finished"),
+            Err(e) => println!("error: {e}"),
         }
+    } else {
+        cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+        let _ = game_thread.join();
     }
-}
-
-struct MyState {
-    ctx: WasiCtx,
-    table: ResourceTable,
-}
-
-impl WasiView for MyState {
-    fn table(&mut self) -> &mut wasmtime_wasi::ResourceTable {
-        &mut self.table
-    }
-
-    fn ctx(&mut self) -> &mut WasiCtx {
-        &mut self.ctx
-    }
-}
-
-fn main() -> wasmtime::Result<()> {
-    let engine = wasmtime::Engine::default();
-    let component = wasmtime::component::Component::from_file(&engine, Path::new("comp.wasm"))?;
-    let mut linker = wasmtime::component::Linker::<MyState>::new(&engine);
-    add_to_linker_sync(&mut linker)?;
-
-    let mut builder = WasiCtxBuilder::new();
-    let mut store = wasmtime::Store::new(
-        &engine,
-        MyState {
-            ctx: builder.build(),
-            table: ResourceTable::new(),
-        },
-    );
-    let bindings = Player::instantiate::<MyState>(&mut store, &component, &linker)?;
-    let res = bindings
-        .luarena_player_handlers()
-        .call_on_enemy_seen(&mut store, Point { x: 170.1, y: -2.0 })?;
-    for cmd in res.iter() {
-        println!("command: {cmd}");
-    }
-    Ok(())
 }
