@@ -24,7 +24,7 @@ struct PlayerData {
 }
 
 impl PlayerData {
-    fn new(id: u8, color: crate::game::Color, p: &Point) -> Self {
+    fn new(id: u8, color: crate::color::Color, p: &Point) -> Self {
         Self {
             id,
             color: to_raylib_color(&color),
@@ -114,7 +114,7 @@ fn heading(d: &mut RaylibDrawHandle, x: i32, y: i32, heading: f32, color: Color)
     );
 }
 
-fn to_raylib_color(color: &crate::game::Color) -> Color {
+fn to_raylib_color(color: &crate::color::Color) -> Color {
     Color {
         r: color.red,
         g: color.green,

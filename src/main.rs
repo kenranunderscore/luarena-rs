@@ -12,7 +12,9 @@ use game::*;
 use render::GameRenderer;
 use settings::*;
 
+mod color;
 mod game;
+mod lua_player;
 mod math_utils;
 mod player;
 mod render;
