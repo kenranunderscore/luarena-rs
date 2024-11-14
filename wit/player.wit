@@ -30,6 +30,12 @@ interface handlers {
     on-enemy-seen: func(p: point) -> list<player-command>;
 }
 
+interface me {
+    hp: func() -> f32;
+}
+
 world player {
+    import log: func(msg: string);
+    import me;
     export handlers;
 }

@@ -123,9 +123,8 @@ impl Game {
         let id = self.player_states.len() as u8; // FIXME
         let player_state = PlayerState::new(meta, id);
         let intent = Arc::new(RwLock::new(PlayerIntent::default()));
-        let wasm_impl = wasm_player::WasmImpl::load(component_file).ok_or(AddPlayerError {
-            message: "WASM player could not be loaded".to_string(),
-        })?;
+        let wasm_impl = wasm_player::WasmImpl::load(component_file)
+            .map_err(|e| AddPlayerError { message: e.message })?;
         self.player_states.insert(player_state.id, player_state);
         self.impls.insert(
             id,

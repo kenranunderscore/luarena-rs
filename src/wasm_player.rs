@@ -11,12 +11,19 @@ pub struct WasmImpl {
     store: wasmtime::Store<MyState>,
 }
 
+impl luarena::player::me::Host for MyState {
+    fn hp(&mut self) -> f32 {
+        7.14
+    }
+}
+
 impl WasmImpl {
-    pub fn load(component_file: &Path) -> Option<Self> {
+    pub fn load(component_file: &Path) -> Result<Self, AddWasmPlayerError> {
         let engine = wasmtime::Engine::default();
-        let component = wasmtime::component::Component::from_file(&engine, component_file).ok()?;
-        let mut linker = wasmtime::component::Linker::<MyState>::new(&engine);
-        wasmtime_wasi::add_to_linker_sync(&mut linker).ok()?;
+        let component = wasmtime::component::Component::from_file(&engine, component_file)?;
+        let mut linker = wasmtime::component::Linker::new(&engine);
+        wasmtime_wasi::add_to_linker_sync(&mut linker)?;
+        Player::add_to_linker(&mut linker, |state: &mut MyState| state)?;
         let mut builder = wasmtime_wasi::WasiCtxBuilder::new();
         let mut store = wasmtime::Store::new(
             &engine,
@@ -25,8 +32,8 @@ impl WasmImpl {
                 table: wasmtime_wasi::ResourceTable::new(),
             },
         );
-        let bindings = Player::instantiate::<MyState>(&mut store, &component, &linker).ok()?;
-        Some(Self { bindings, store })
+        let bindings = Player::instantiate::<MyState>(&mut store, &component, &linker)?;
+        Ok(Self { bindings, store })
     }
 }
 
@@ -76,6 +83,24 @@ impl From<wasmtime::Error> for player::PlayerEventError {
         Self {
             message: value.to_string(),
         }
+    }
+}
+
+pub struct AddWasmPlayerError {
+    pub message: String,
+}
+
+impl From<wasmtime::Error> for AddWasmPlayerError {
+    fn from(value: wasmtime::Error) -> Self {
+        Self {
+            message: value.to_string(),
+        }
+    }
+}
+
+impl PlayerImports for MyState {
+    fn log(&mut self, msg: String) {
+        println!("hellloooooo: {msg}");
     }
 }
 
