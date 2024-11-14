@@ -117,7 +117,7 @@ impl fmt::Display for PlayerEventError {
 }
 
 pub trait PlayerImpl {
-    fn on_event(&self, event: &PlayerEvent) -> Result<PlayerCommands, PlayerEventError>;
+    fn on_event(&mut self, event: &PlayerEvent) -> Result<PlayerCommands, PlayerEventError>;
 }
 
 pub type ReadableFromImpl<T> = Arc<RwLock<T>>;

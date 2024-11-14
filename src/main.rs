@@ -19,6 +19,7 @@ mod math_utils;
 mod player;
 mod render;
 mod settings;
+mod wasm_player;
 
 fn _run_replay(
     history_file: &Path,
@@ -55,7 +56,8 @@ fn main() {
     let game_thread = std::thread::spawn(move || -> Result<(), GameError> {
         let mut game = Game::new();
         game.add_lua_player(Path::new("players/kai"))?;
-        game.add_lua_player(Path::new("players/lloyd"))?;
+        // game.add_lua_player(Path::new("players/lloyd"))?;
+        game.add_wasm_player(Path::new("comp.wasm"))?;
 
         let delay = Duration::from_millis(7);
         // run_replay(Path::new("events"), game_writer, &delay, &cancel_ref).unwrap();

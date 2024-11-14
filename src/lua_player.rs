@@ -205,7 +205,7 @@ impl LuaImpl {
 }
 
 impl PlayerImpl for LuaImpl {
-    fn on_event(&self, event: &PlayerEvent) -> Result<PlayerCommands, PlayerEventError> {
+    fn on_event(&mut self, event: &PlayerEvent) -> Result<PlayerCommands, PlayerEventError> {
         match event {
             PlayerEvent::Tick(n) => self.call_event_handler("on_tick", *n),
             PlayerEvent::RoundStarted(n) => self.call_event_handler("on_round_started", *n),

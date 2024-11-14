@@ -7,12 +7,13 @@ use std::sync::{mpsc, Arc, RwLock};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
+use crate::color::Color;
 use crate::math_utils::{self, Point, Sector, HALF_PI};
 use crate::player::{
     MovementDirection, Player, PlayerCommand, PlayerEvent, PlayerEventError, PlayerImpl,
     PlayerIntent, PlayerMeta, PlayerState,
 };
-use crate::{lua_player, settings::*};
+use crate::{lua_player, settings::*, wasm_player};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Attack {
@@ -55,17 +56,17 @@ pub struct Game {
     attack_ids: Ids,
 }
 
-pub struct AddLuaPlayerError {
+pub struct AddPlayerError {
     pub message: String,
 }
 
-impl fmt::Display for AddLuaPlayerError {
+impl fmt::Display for AddPlayerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.message)
     }
 }
 
-impl From<mlua::Error> for AddLuaPlayerError {
+impl From<mlua::Error> for AddPlayerError {
     fn from(err: mlua::Error) -> Self {
         Self {
             message: format!("{err}"),
@@ -86,7 +87,7 @@ impl Game {
         }
     }
 
-    pub fn add_lua_player(&mut self, player_dir: &Path) -> Result<(), AddLuaPlayerError> {
+    pub fn add_lua_player(&mut self, player_dir: &Path) -> Result<(), AddPlayerError> {
         let meta = PlayerMeta::from_lua(player_dir)?;
         let id = self.player_states.len() as u8; // FIXME
         let player_state = PlayerState::new(meta, id);
@@ -102,6 +103,34 @@ impl Game {
             id,
             Player {
                 implementation: Box::new(lua_impl),
+                intent,
+            },
+        );
+        Ok(())
+    }
+
+    pub fn add_wasm_player(&mut self, component_file: &Path) -> Result<(), AddPlayerError> {
+        let meta = PlayerMeta {
+            name: "foo".to_string(),
+            color: Color {
+                red: 0,
+                green: 0,
+                blue: 200,
+            },
+            _version: "1".to_string(),
+            entrypoint: "nothing".to_string(),
+        };
+        let id = self.player_states.len() as u8; // FIXME
+        let player_state = PlayerState::new(meta, id);
+        let intent = Arc::new(RwLock::new(PlayerIntent::default()));
+        let wasm_impl = wasm_player::WasmImpl::load(component_file).ok_or(AddPlayerError {
+            message: "WASM player could not be loaded".to_string(),
+        })?;
+        self.player_states.insert(player_state.id, player_state);
+        self.impls.insert(
+            id,
+            Player {
+                implementation: Box::new(wasm_impl),
                 intent,
             },
         );
@@ -330,7 +359,7 @@ fn can_spot(
 
 fn dispatch_player_events(
     player_events: Vec<PlayerEvent>,
-    player: &Box<dyn PlayerImpl>,
+    player: &mut Box<dyn PlayerImpl>,
 ) -> Result<Vec<PlayerCommand>, PlayerEventError> {
     let mut commands = Vec::new();
     for e in player_events.iter() {
@@ -583,8 +612,8 @@ fn run_players(game: &mut Game, events: &[GameEvent]) -> Result<(), PlayerEventE
                 }
             }
         }
-        let player = game.impls.get(id).unwrap();
-        let mut commands = dispatch_player_events(player_events, &player.implementation)?;
+        let player = game.impls.get_mut(id).unwrap();
+        let mut commands = dispatch_player_events(player_events, &mut player.implementation)?;
         reduce_commands(&mut commands);
         for cmd in commands.iter() {
             match cmd {
@@ -678,14 +707,14 @@ pub fn run_round(
 }
 
 pub enum GameError {
-    AddLuaPlayerError(AddLuaPlayerError),
+    AddPlayerError(AddPlayerError),
     LuaPlayerEventError(PlayerEventError),
 }
 
 impl fmt::Display for GameError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            GameError::AddLuaPlayerError(inner) => write!(f, "Player could not be added: {inner}"),
+            GameError::AddPlayerError(inner) => write!(f, "Player could not be added: {inner}"),
             GameError::LuaPlayerEventError(inner) => {
                 write!(f, "Communication with player failed: {inner}")
             }
@@ -693,9 +722,9 @@ impl fmt::Display for GameError {
     }
 }
 
-impl From<AddLuaPlayerError> for GameError {
-    fn from(err: AddLuaPlayerError) -> Self {
-        GameError::AddLuaPlayerError(err)
+impl From<AddPlayerError> for GameError {
+    fn from(err: AddPlayerError) -> Self {
+        GameError::AddPlayerError(err)
     }
 }
 
