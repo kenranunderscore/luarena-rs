@@ -190,7 +190,7 @@ impl LuaImpl {
         Ok(())
     }
 
-    pub fn load_lua_player(
+    pub fn load(
         player_dir: &Path,
         meta: &PlayerMeta,
         player_state: &PlayerState,
@@ -373,7 +373,7 @@ mod tests {
 
         #[test]
         fn call_on_tick() {
-            let player = LuaImpl::new("return { on_tick = function(n) return { { tag = \"move\", distance = 13.12, direction = \"left\" } } end }")
+            let mut player = LuaImpl::new("return { on_tick = function(n) return { { tag = \"move\", distance = 13.12, direction = \"left\" } } end }")
                 .expect("lua player could not be created");
             let res: PlayerCommands = player.on_event(&PlayerEvent::Tick(17)).unwrap();
             let cmd = res.value.first().expect("some command");
@@ -382,7 +382,7 @@ mod tests {
 
         #[test]
         fn call_on_tick_if_missing() {
-            let player = LuaImpl::new("return {}").unwrap();
+            let mut player = LuaImpl::new("return {}").unwrap();
             let res: PlayerCommands = player.on_event(&PlayerEvent::Tick(17)).unwrap();
             assert_eq!(res.value.len(), 0);
         }

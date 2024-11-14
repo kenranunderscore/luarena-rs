@@ -6,6 +6,12 @@ use crate::player;
 
 wasmtime::component::bindgen!("player");
 
+struct MyState {
+    ctx: wasmtime_wasi::WasiCtx,
+    table: wasmtime_wasi::ResourceTable,
+    hp: player::ReadableFromImpl<f32>,
+}
+
 pub struct WasmImpl {
     bindings: Player,
     store: wasmtime::Store<MyState>,
@@ -13,12 +19,16 @@ pub struct WasmImpl {
 
 impl luarena::player::me::Host for MyState {
     fn hp(&mut self) -> f32 {
-        7.14
+        *self.hp.read().unwrap()
     }
 }
 
 impl WasmImpl {
-    pub fn load(component_file: &Path) -> Result<Self, AddWasmPlayerError> {
+    pub fn load(
+        component_file: &Path,
+        player_state: &player::PlayerState,
+        _intent: &player::ReadableFromImpl<player::PlayerIntent>,
+    ) -> Result<Self, AddWasmPlayerError> {
         let engine = wasmtime::Engine::default();
         let component = wasmtime::component::Component::from_file(&engine, component_file)?;
         let mut linker = wasmtime::component::Linker::new(&engine);
@@ -30,16 +40,12 @@ impl WasmImpl {
             MyState {
                 ctx: builder.build(),
                 table: wasmtime_wasi::ResourceTable::new(),
+                hp: player_state.hp.clone(),
             },
         );
         let bindings = Player::instantiate::<MyState>(&mut store, &component, &linker)?;
         Ok(Self { bindings, store })
     }
-}
-
-struct MyState {
-    ctx: wasmtime_wasi::WasiCtx,
-    table: wasmtime_wasi::ResourceTable,
 }
 
 impl wasmtime_wasi::WasiView for MyState {
