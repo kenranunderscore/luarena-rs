@@ -190,13 +190,14 @@ impl LuaImpl {
         Ok(())
     }
 
+    // FIXME: what to use that's more generic than `Path`?
     pub fn load(
         player_dir: &Path,
-        meta: &PlayerMeta,
+        entrypoint: &Path,
         player_state: &PlayerState,
         intent: &ReadableFromImpl<PlayerIntent>,
     ) -> LuaResult<Self> {
-        let file = player_dir.join(&meta.entrypoint);
+        let file = player_dir.join(entrypoint);
         let code = std::fs::read_to_string(file)?;
         let res = Self::new(&code)?;
         res.register_lua_library(player_state, intent)?;
@@ -390,7 +391,7 @@ mod tests {
 }
 
 impl PlayerMeta {
-    pub fn from_lua(player_dir: &Path) -> LuaResult<PlayerMeta> {
+    pub fn from_lua(player_dir: &Path) -> LuaResult<(PlayerMeta, String)> {
         let lua = Lua::new();
         let meta_file = player_dir.join("meta.lua");
         let code = std::fs::read_to_string(meta_file)?;
@@ -402,11 +403,13 @@ impl PlayerMeta {
             Ok(file_name) => file_name,
             Err(_) => String::from("main.lua"),
         };
-        Ok(PlayerMeta {
-            name,
-            color,
-            _version: version,
+        Ok((
+            PlayerMeta {
+                name,
+                color,
+                _version: version,
+            },
             entrypoint,
-        })
+        ))
     }
 }

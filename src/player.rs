@@ -14,7 +14,6 @@ pub struct PlayerMeta {
     pub name: String,
     pub color: Color,
     pub _version: String,
-    pub entrypoint: String,
 }
 
 pub struct PlayerIntent {
