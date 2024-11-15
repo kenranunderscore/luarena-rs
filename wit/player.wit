@@ -1,0 +1,54 @@
+package luarena:player;
+
+interface handlers {
+    enum movement-direction {
+        forward,
+        backward,
+        left,
+        right,
+    }
+
+    record movement {
+        direction: movement-direction,
+        distance: f32,
+    }
+
+    variant command {
+        move(movement),
+        attack,
+        turn(f32),
+        turn-head(f32),
+        turn-arms(f32),
+    }
+
+    record point {
+        x: f32,
+        y: f32,
+    }
+
+    on-round-started: func(n: u32) -> list<command>;
+    on-tick: func(n: u32) -> list<command>;
+    on-enemy-seen: func(enemy: string, p: point) -> list<command>;
+    on-hit-by: func(enemy: string) -> list<command>;
+    on-attack-hit: func(enemy: string, p: point) -> list<command>;
+    on-death: func();
+}
+
+interface me {
+    x: func() -> f32;
+    y: func() -> f32;
+    hp: func() -> f32;
+    heading: func() -> f32;
+    head-heading: func() -> f32;
+    arms-heading: func() -> f32;
+    attack-cooldown: func() -> u8;
+    turn-remaining: func() -> f32;
+    head-turn-remaining: func() -> f32;
+    arms-turn-remaining: func() -> f32;
+}
+
+world player {
+    import log: func(msg: string);
+    import me;
+    export handlers;
+}
