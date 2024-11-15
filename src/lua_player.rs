@@ -47,19 +47,19 @@ impl<'a> IntoLua<'a> for MovementDirection {
     }
 }
 
-impl<'a> FromLua<'a> for PlayerCommand {
+impl<'a> FromLua<'a> for Command {
     fn from_lua(value: LuaValue<'a>, _lua: &'a Lua) -> LuaResult<Self> {
         match value {
             LuaValue::Table(t) => match t.get::<&str, String>("tag")?.as_str() {
                 "move" => {
                     let dist = t.get("distance")?;
                     let dir: MovementDirection = t.get("direction")?;
-                    Ok(PlayerCommand::Move(dir, dist))
+                    Ok(Command::Move(dir, dist))
                 }
-                "attack" => Ok(PlayerCommand::Attack),
-                "turn" => Ok(PlayerCommand::Turn(t.get("angle")?)),
-                "turn_head" => Ok(PlayerCommand::TurnHead(t.get("angle")?)),
-                "turn_arms" => Ok(PlayerCommand::TurnArms(t.get("angle")?)),
+                "attack" => Ok(Command::Attack),
+                "turn" => Ok(Command::Turn(t.get("angle")?)),
+                "turn_head" => Ok(Command::TurnHead(t.get("angle")?)),
+                "turn_arms" => Ok(Command::TurnArms(t.get("angle")?)),
                 s => todo!("invalid tag: {s}"),
             },
             _ => Err(mlua::Error::FromLuaConversionError {
@@ -71,13 +71,11 @@ impl<'a> FromLua<'a> for PlayerCommand {
     }
 }
 
-impl<'a> FromLua<'a> for PlayerCommands {
+impl<'a> FromLua<'a> for Commands {
     fn from_lua(value: LuaValue<'a>, lua: &'a Lua) -> LuaResult<Self> {
         match value {
-            LuaValue::Nil => Ok(PlayerCommands::none()),
-            _ => Ok(PlayerCommands::from(Vec::<PlayerCommand>::from_lua(
-                value, lua,
-            )?)),
+            LuaValue::Nil => Ok(Commands::none()),
+            _ => Ok(Commands::from(Vec::<Command>::from_lua(value, lua)?)),
         }
     }
 }
@@ -88,29 +86,29 @@ fn create_tagged_table<'a>(lua: &'a Lua, tag: &str) -> LuaResult<LuaTable<'a>> {
     Ok(t)
 }
 
-impl<'a> IntoLua<'a> for PlayerCommand {
+impl<'a> IntoLua<'a> for Command {
     fn into_lua(self, lua: &'a Lua) -> LuaResult<LuaValue<'a>> {
         match self {
-            PlayerCommand::Attack => {
+            Command::Attack => {
                 let t = create_tagged_table(&lua, "attack")?;
                 Ok(LuaValue::Table(t))
             }
-            PlayerCommand::Turn(angle) => {
+            Command::Turn(angle) => {
                 let t = create_tagged_table(&lua, "turn")?;
                 t.set("angle", angle)?;
                 Ok(LuaValue::Table(t))
             }
-            PlayerCommand::TurnHead(angle) => {
+            Command::TurnHead(angle) => {
                 let t = create_tagged_table(&lua, "turn_head")?;
                 t.set("angle", angle)?;
                 Ok(LuaValue::Table(t))
             }
-            PlayerCommand::TurnArms(angle) => {
+            Command::TurnArms(angle) => {
                 let t = create_tagged_table(&lua, "turn_arms")?;
                 t.set("angle", angle)?;
                 Ok(LuaValue::Table(t))
             }
-            PlayerCommand::Move(dir, dist) => {
+            Command::Move(dir, dist) => {
                 let t = create_tagged_table(&lua, "move")?;
                 t.set("distance", dist)?;
                 t.set("direction", dir)?;
@@ -163,7 +161,7 @@ impl LuaImpl {
         Ok(t)
     }
 
-    fn call_event_handler<A>(&self, name: &str, args: A) -> Result<PlayerCommands, PlayerEventError>
+    fn call_event_handler<A>(&self, name: &str, args: A) -> Result<Commands, EventError>
     where
         A: for<'a> IntoLuaMulti<'a>,
     {
@@ -171,15 +169,15 @@ impl LuaImpl {
         let res = if t.contains_key(name)? {
             t.call_function(name, args)?
         } else {
-            PlayerCommands::none()
+            Commands::none()
         };
         Ok(res)
     }
 
     fn register_lua_library(
         &self,
-        player_state: &PlayerState,
-        intent: &ReadableFromImpl<PlayerIntent>,
+        player_state: &State,
+        intent: &ReadableFromImpl<Intent>,
     ) -> LuaResult<()> {
         let lua = &self.lua;
         let mut me = lua.create_table()?;
@@ -194,8 +192,8 @@ impl LuaImpl {
     pub fn load(
         player_dir: &Path,
         entrypoint: &Path,
-        player_state: &PlayerState,
-        intent: &ReadableFromImpl<PlayerIntent>,
+        player_state: &State,
+        intent: &ReadableFromImpl<Intent>,
     ) -> LuaResult<Self> {
         let file = player_dir.join(entrypoint);
         let code = std::fs::read_to_string(file)?;
@@ -205,28 +203,28 @@ impl LuaImpl {
     }
 }
 
-impl PlayerImpl for LuaImpl {
-    fn on_event(&mut self, event: &PlayerEvent) -> Result<PlayerCommands, PlayerEventError> {
+impl Impl for LuaImpl {
+    fn on_event(&mut self, event: &Event) -> Result<Commands, EventError> {
         match event {
-            PlayerEvent::Tick(n) => self.call_event_handler("on_tick", *n),
-            PlayerEvent::RoundStarted(n) => self.call_event_handler("on_round_started", *n),
-            PlayerEvent::EnemySeen(name, pos) => {
+            Event::Tick(n) => self.call_event_handler("on_tick", *n),
+            Event::RoundStarted(n) => self.call_event_handler("on_round_started", *n),
+            Event::EnemySeen(name, pos) => {
                 self.call_event_handler("on_enemy_seen", (name.to_string(), pos.clone()))
             }
-            PlayerEvent::HitBy(id) => self.call_event_handler("on_hit_by", *id),
-            PlayerEvent::AttackHit(id, pos) => {
+            Event::HitBy(id) => self.call_event_handler("on_hit_by", *id),
+            Event::AttackHit(id, pos) => {
                 self.call_event_handler("on_attack_hit", (*id, pos.clone()))
             }
-            PlayerEvent::Death => self.call_event_handler("on_death", ()),
+            Event::Death => self.call_event_handler("on_death", ()),
         }
     }
 }
 
 fn register_player_state_accessors(
-    player: &PlayerState,
+    player: &State,
     t: &mut LuaTable,
     lua: &Lua,
-    intent: &ReadableFromImpl<PlayerIntent>,
+    intent: &ReadableFromImpl<Intent>,
 ) -> LuaResult<()> {
     // Each accessor needs its own reference to the data, that's why we need to
     // clone the Arcs multiple times
@@ -304,34 +302,32 @@ fn register_player_state_accessors(
 }
 
 fn register_player_commands(t: &mut LuaTable, lua: &Lua) -> LuaResult<()> {
-    let move_ = lua.create_function(|_, dist: f32| {
-        Ok(PlayerCommand::Move(MovementDirection::Forward, dist))
-    })?;
+    let move_ =
+        lua.create_function(|_, dist: f32| Ok(Command::Move(MovementDirection::Forward, dist)))?;
     t.set("move", move_)?;
 
-    let move_backward = lua.create_function(|_, dist: f32| {
-        Ok(PlayerCommand::Move(MovementDirection::Backward, dist))
-    })?;
+    let move_backward =
+        lua.create_function(|_, dist: f32| Ok(Command::Move(MovementDirection::Backward, dist)))?;
     t.set("move_backward", move_backward)?;
 
     let move_left =
-        lua.create_function(|_, dist: f32| Ok(PlayerCommand::Move(MovementDirection::Left, dist)))?;
+        lua.create_function(|_, dist: f32| Ok(Command::Move(MovementDirection::Left, dist)))?;
     t.set("move_left", move_left)?;
 
-    let move_right = lua
-        .create_function(|_, dist: f32| Ok(PlayerCommand::Move(MovementDirection::Right, dist)))?;
+    let move_right =
+        lua.create_function(|_, dist: f32| Ok(Command::Move(MovementDirection::Right, dist)))?;
     t.set("move_right", move_right)?;
 
-    let attack = lua.create_function(|_, _: ()| Ok(PlayerCommand::Attack))?;
+    let attack = lua.create_function(|_, _: ()| Ok(Command::Attack))?;
     t.set("attack", attack)?;
 
-    let turn = lua.create_function(|_, angle: f32| Ok(PlayerCommand::Turn(angle)))?;
+    let turn = lua.create_function(|_, angle: f32| Ok(Command::Turn(angle)))?;
     t.set("turn", &turn)?;
 
-    let turn_head = lua.create_function(|_, angle: f32| Ok(PlayerCommand::TurnHead(angle)))?;
+    let turn_head = lua.create_function(|_, angle: f32| Ok(Command::TurnHead(angle)))?;
     t.set("turn_head", turn_head)?;
 
-    let turn_arms = lua.create_function(|_, angle: f32| Ok(PlayerCommand::TurnArms(angle)))?;
+    let turn_arms = lua.create_function(|_, angle: f32| Ok(Command::TurnArms(angle)))?;
     t.set("turn_arms", turn_arms)?;
 
     Ok(())
@@ -376,22 +372,22 @@ mod tests {
         fn call_on_tick() {
             let mut player = LuaImpl::new("return { on_tick = function(n) return { { tag = \"move\", distance = 13.12, direction = \"left\" } } end }")
                 .expect("lua player could not be created");
-            let res: PlayerCommands = player.on_event(&PlayerEvent::Tick(17)).unwrap();
+            let res: Commands = player.on_event(&Event::Tick(17)).unwrap();
             let cmd = res.value.first().expect("some command");
-            assert_eq!(*cmd, PlayerCommand::Move(MovementDirection::Left, 13.12));
+            assert_eq!(*cmd, Command::Move(MovementDirection::Left, 13.12));
         }
 
         #[test]
         fn call_on_tick_if_missing() {
             let mut player = LuaImpl::new("return {}").unwrap();
-            let res: PlayerCommands = player.on_event(&PlayerEvent::Tick(17)).unwrap();
+            let res: Commands = player.on_event(&Event::Tick(17)).unwrap();
             assert_eq!(res.value.len(), 0);
         }
     }
 }
 
-impl PlayerMeta {
-    pub fn from_lua(player_dir: &Path) -> LuaResult<(PlayerMeta, String)> {
+impl Meta {
+    pub fn from_lua(player_dir: &Path) -> LuaResult<(Meta, String)> {
         let lua = Lua::new();
         let meta_file = player_dir.join("meta.lua");
         let code = std::fs::read_to_string(meta_file)?;
@@ -404,12 +400,20 @@ impl PlayerMeta {
             Err(_) => String::from("main.lua"),
         };
         Ok((
-            PlayerMeta {
+            Meta {
                 name,
                 color,
                 _version: version,
             },
             entrypoint,
         ))
+    }
+}
+
+impl From<mlua::Error> for EventError {
+    fn from(err: mlua::Error) -> Self {
+        Self {
+            message: format!("{err}"),
+        }
     }
 }

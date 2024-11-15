@@ -10,13 +10,13 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PlayerMeta {
+pub struct Meta {
     pub name: String,
     pub color: Color,
     pub _version: String,
 }
 
-pub struct PlayerIntent {
+pub struct Intent {
     pub direction: MovementDirection,
     pub distance: f32,
     pub attack: bool,
@@ -25,7 +25,7 @@ pub struct PlayerIntent {
     pub turn_arms_angle: f32,
 }
 
-impl Default for PlayerIntent {
+impl Default for Intent {
     fn default() -> Self {
         Self {
             direction: MovementDirection::Forward,
@@ -39,18 +39,18 @@ impl Default for PlayerIntent {
 }
 
 pub struct Player {
-    pub implementation: Box<dyn PlayerImpl>,
-    pub intent: ReadableFromImpl<PlayerIntent>,
+    pub implementation: Box<dyn Impl>,
+    pub intent: ReadableFromImpl<Intent>,
 }
 
 impl Player {
-    pub fn intent(&self) -> std::sync::RwLockReadGuard<PlayerIntent> {
+    pub fn intent(&self) -> std::sync::RwLockReadGuard<Intent> {
         self.intent.read().unwrap()
     }
 }
 
 #[derive(Debug)]
-pub enum PlayerEvent {
+pub enum Event {
     Tick(u32),
     RoundStarted(u32),
     EnemySeen(String, Point),
@@ -68,7 +68,7 @@ pub enum MovementDirection {
 }
 
 #[derive(PartialEq, Debug)]
-pub enum PlayerCommand {
+pub enum Command {
     Move(MovementDirection, f32),
     Attack,
     Turn(f32),
@@ -76,55 +76,55 @@ pub enum PlayerCommand {
     TurnArms(f32),
 }
 
-impl PlayerCommand {
+impl Command {
     pub fn index(&self) -> i32 {
         match self {
-            PlayerCommand::Move(_, _) => 0,
-            PlayerCommand::Attack => 1,
-            PlayerCommand::Turn(_) => 2,
-            PlayerCommand::TurnHead(_) => 3,
-            PlayerCommand::TurnArms(_) => 4,
+            Command::Move(_, _) => 0,
+            Command::Attack => 1,
+            Command::Turn(_) => 2,
+            Command::TurnHead(_) => 3,
+            Command::TurnArms(_) => 4,
         }
     }
 }
 
-pub struct PlayerCommands {
-    pub value: Vec<PlayerCommand>,
+pub struct Commands {
+    pub value: Vec<Command>,
 }
 
-impl PlayerCommands {
+impl Commands {
     pub fn none() -> Self {
         Self { value: vec![] }
     }
 }
 
-impl From<Vec<PlayerCommand>> for PlayerCommands {
-    fn from(value: Vec<PlayerCommand>) -> Self {
+impl From<Vec<Command>> for Commands {
+    fn from(value: Vec<Command>) -> Self {
         Self { value }
     }
 }
 
 #[derive(Debug)]
-pub struct PlayerEventError {
+pub struct EventError {
     pub message: String,
 }
 
-impl fmt::Display for PlayerEventError {
+impl fmt::Display for EventError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.message)
     }
 }
 
-pub trait PlayerImpl {
-    fn on_event(&mut self, event: &PlayerEvent) -> Result<PlayerCommands, PlayerEventError>;
+pub trait Impl {
+    fn on_event(&mut self, event: &Event) -> Result<Commands, EventError>;
 }
 
 pub type ReadableFromImpl<T> = Arc<RwLock<T>>;
 
-pub struct PlayerState {
+pub struct State {
     pub id: u8,
     pub hp: ReadableFromImpl<f32>,
-    pub meta: PlayerMeta,
+    pub meta: Meta,
     pub pos: ReadableFromImpl<Point>,
     pub heading: ReadableFromImpl<f32>,
     pub head_heading: ReadableFromImpl<f32>,
@@ -132,8 +132,8 @@ pub struct PlayerState {
     pub attack_cooldown: ReadableFromImpl<u8>,
 }
 
-impl PlayerState {
-    pub fn new(meta: PlayerMeta, id: u8) -> Self {
+impl State {
+    pub fn new(meta: Meta, id: u8) -> Self {
         Self {
             id,
             hp: Arc::new(RwLock::new(settings::INITIAL_HP)),

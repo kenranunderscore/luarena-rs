@@ -26,8 +26,8 @@ impl luarena::player::me::Host for MyState {
 impl WasmImpl {
     pub fn load(
         component_file: &Path,
-        player_state: &player::PlayerState,
-        _intent: &player::ReadableFromImpl<player::PlayerIntent>,
+        player_state: &player::State,
+        _intent: &player::ReadableFromImpl<player::Intent>,
     ) -> Result<Self, AddWasmPlayerError> {
         let engine = wasmtime::Engine::default();
         let component = wasmtime::component::Component::from_file(&engine, component_file)?;
@@ -69,7 +69,7 @@ impl From<MovementDirection> for player::MovementDirection {
     }
 }
 
-impl From<PlayerCommand> for player::PlayerCommand {
+impl From<PlayerCommand> for player::Command {
     fn from(value: PlayerCommand) -> Self {
         match value {
             PlayerCommand::Move(Movement {
@@ -84,7 +84,7 @@ impl From<PlayerCommand> for player::PlayerCommand {
     }
 }
 
-impl From<wasmtime::Error> for player::PlayerEventError {
+impl From<wasmtime::Error> for player::EventError {
     fn from(value: wasmtime::Error) -> Self {
         Self {
             message: value.to_string(),
@@ -110,13 +110,13 @@ impl PlayerImports for MyState {
     }
 }
 
-impl player::PlayerImpl for WasmImpl {
+impl player::Impl for WasmImpl {
     fn on_event(
         &mut self,
-        event: &player::PlayerEvent,
-    ) -> Result<player::PlayerCommands, player::PlayerEventError> {
+        event: &player::Event,
+    ) -> Result<player::Commands, player::EventError> {
         match event {
-            player::PlayerEvent::Tick(tick) => {
+            player::Event::Tick(tick) => {
                 let commands = self
                     .bindings
                     .luarena_player_handlers()
@@ -124,12 +124,12 @@ impl player::PlayerImpl for WasmImpl {
                 // FIXME: iter? how?
                 let mut res = vec![];
                 for cmd in commands {
-                    let cmd: player::PlayerCommand = cmd.into();
+                    let cmd: player::Command = cmd.into();
                     res.push(cmd);
                 }
-                Ok(player::PlayerCommands::from(res))
+                Ok(player::Commands::from(res))
             }
-            _ => Ok(player::PlayerCommands::none()),
+            _ => Ok(player::Commands::none()),
         }
     }
 }
