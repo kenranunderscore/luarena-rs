@@ -13,7 +13,7 @@ interface handlers {
         distance: f32,
     }
 
-    variant player-command {
+    variant command {
         move(movement),
         attack,
         turn(f32),
@@ -26,8 +26,12 @@ interface handlers {
         y: f32,
     }
 
-    on-tick: func(n: u32) -> list<player-command>;
-    on-enemy-seen: func(p: point) -> list<player-command>;
+    on-round-started: func(n: u32) -> list<command>;
+    on-tick: func(n: u32) -> list<command>;
+    on-enemy-seen: func(enemy: string, p: point) -> list<command>;
+    on-hit-by: func(enemy: string) -> list<command>;
+    on-attack-hit: func(enemy: string, p: point) -> list<command>;
+    on-death: func();
 }
 
 interface me {

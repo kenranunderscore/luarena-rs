@@ -1,8 +1,8 @@
 use std::path::Path;
 
-use exports::luarena::player::handlers::{Movement, MovementDirection, PlayerCommand};
+use exports::luarena::player::handlers::{self, Command, Movement, MovementDirection};
 
-use crate::player;
+use crate::{math_utils, player};
 
 wasmtime::component::bindgen!("player");
 
@@ -58,8 +58,8 @@ impl wasmtime_wasi::WasiView for MyState {
     }
 }
 
-impl From<MovementDirection> for player::MovementDirection {
-    fn from(value: MovementDirection) -> Self {
+impl From<&MovementDirection> for player::MovementDirection {
+    fn from(value: &MovementDirection) -> Self {
         match value {
             MovementDirection::Forward => player::MovementDirection::Forward,
             MovementDirection::Backward => player::MovementDirection::Backward,
@@ -69,17 +69,17 @@ impl From<MovementDirection> for player::MovementDirection {
     }
 }
 
-impl From<PlayerCommand> for player::Command {
-    fn from(value: PlayerCommand) -> Self {
+impl From<&Command> for player::Command {
+    fn from(value: &Command) -> Self {
         match value {
-            PlayerCommand::Move(Movement {
+            Command::Move(Movement {
                 direction,
                 distance,
-            }) => Self::Move(direction.into(), distance),
-            PlayerCommand::Attack => Self::Attack,
-            PlayerCommand::Turn(angle) => Self::Turn(angle),
-            PlayerCommand::TurnHead(angle) => Self::TurnHead(angle),
-            PlayerCommand::TurnArms(angle) => Self::TurnArms(angle),
+            }) => Self::Move(direction.into(), *distance),
+            Command::Attack => Self::Attack,
+            Command::Turn(angle) => Self::Turn(*angle),
+            Command::TurnHead(angle) => Self::TurnHead(*angle),
+            Command::TurnArms(angle) => Self::TurnArms(*angle),
         }
     }
 }
@@ -110,26 +110,69 @@ impl PlayerImports for MyState {
     }
 }
 
+impl From<&math_utils::Point> for handlers::Point {
+    fn from(p: &math_utils::Point) -> Self {
+        Self { x: p.x, y: p.y }
+    }
+}
+
+impl From<Vec<Command>> for player::Commands {
+    fn from(cmds: Vec<Command>) -> Self {
+        let mut res = vec![];
+        for cmd in cmds.iter() {
+            let cmd: player::Command = cmd.into();
+            res.push(cmd);
+        }
+        player::Commands::from(res)
+    }
+}
+
 impl player::Impl for WasmImpl {
-    fn on_event(
-        &mut self,
-        event: &player::Event,
-    ) -> Result<player::Commands, player::EventError> {
+    fn on_event(&mut self, event: &player::Event) -> Result<player::Commands, player::EventError> {
         match event {
             player::Event::Tick(tick) => {
                 let commands = self
                     .bindings
                     .luarena_player_handlers()
                     .call_on_tick(&mut self.store, *tick)?;
-                // FIXME: iter? how?
-                let mut res = vec![];
-                for cmd in commands {
-                    let cmd: player::Command = cmd.into();
-                    res.push(cmd);
-                }
-                Ok(player::Commands::from(res))
+                Ok(player::Commands::from(commands))
             }
-            _ => Ok(player::Commands::none()),
+            player::Event::RoundStarted(round) => {
+                let commands = self
+                    .bindings
+                    .luarena_player_handlers()
+                    .call_on_round_started(&mut self.store, *round)?;
+                Ok(player::Commands::from(commands))
+            }
+            player::Event::EnemySeen(enemy, p) => {
+                let commands = self.bindings.luarena_player_handlers().call_on_enemy_seen(
+                    &mut self.store,
+                    enemy,
+                    p.into(),
+                )?;
+                Ok(player::Commands::from(commands))
+            }
+            player::Event::Death => {
+                self.bindings
+                    .luarena_player_handlers()
+                    .call_on_death(&mut self.store)?;
+                Ok(player::Commands::none())
+            }
+            player::Event::HitBy(enemy) => {
+                let commands = self
+                    .bindings
+                    .luarena_player_handlers()
+                    // FIXME: enemy
+                    .call_on_hit_by(&mut self.store, &enemy.to_string())?;
+                Ok(player::Commands::from(commands))
+            }
+            player::Event::AttackHit(enemy, p) => {
+                let commands = self
+                    .bindings
+                    .luarena_player_handlers()
+                    .call_on_attack_hit(&mut self.store, &enemy.to_string(), p.into())?;
+                Ok(player::Commands::from(commands))
+            }
         }
     }
 }
