@@ -220,6 +220,38 @@ impl Impl for LuaImpl {
     }
 }
 
+impl Meta {
+    pub fn from_lua(player_dir: &Path) -> LuaResult<(Meta, String)> {
+        let lua = Lua::new();
+        let meta_file = player_dir.join("meta.lua");
+        let code = std::fs::read_to_string(meta_file)?;
+        lua.load(&code).exec()?;
+        let name = lua.globals().get("name")?;
+        let color = lua.globals().get("color")?;
+        let version = lua.globals().get("version")?;
+        let entrypoint = match lua.globals().get("entrypoint") {
+            Ok(file_name) => file_name,
+            Err(_) => String::from("main.lua"),
+        };
+        Ok((
+            Meta {
+                name,
+                color,
+                _version: version,
+            },
+            entrypoint,
+        ))
+    }
+}
+
+impl From<mlua::Error> for EventError {
+    fn from(err: mlua::Error) -> Self {
+        Self {
+            message: format!("{err}"),
+        }
+    }
+}
+
 fn register_player_state_accessors(
     player: &State,
     t: &mut LuaTable,
@@ -382,38 +414,6 @@ mod tests {
             let mut player = LuaImpl::new("return {}").unwrap();
             let res: Commands = player.on_event(&Event::Tick(17)).unwrap();
             assert_eq!(res.value.len(), 0);
-        }
-    }
-}
-
-impl Meta {
-    pub fn from_lua(player_dir: &Path) -> LuaResult<(Meta, String)> {
-        let lua = Lua::new();
-        let meta_file = player_dir.join("meta.lua");
-        let code = std::fs::read_to_string(meta_file)?;
-        lua.load(&code).exec()?;
-        let name = lua.globals().get("name")?;
-        let color = lua.globals().get("color")?;
-        let version = lua.globals().get("version")?;
-        let entrypoint = match lua.globals().get("entrypoint") {
-            Ok(file_name) => file_name,
-            Err(_) => String::from("main.lua"),
-        };
-        Ok((
-            Meta {
-                name,
-                color,
-                _version: version,
-            },
-            entrypoint,
-        ))
-    }
-}
-
-impl From<mlua::Error> for EventError {
-    fn from(err: mlua::Error) -> Self {
-        Self {
-            message: format!("{err}"),
         }
     }
 }
