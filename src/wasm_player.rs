@@ -10,6 +10,12 @@ struct MyState {
     ctx: wasmtime_wasi::WasiCtx,
     table: wasmtime_wasi::ResourceTable,
     hp: player::ReadableFromImpl<f32>,
+    pos: player::ReadableFromImpl<math_utils::Point>,
+    heading: player::ReadableFromImpl<f32>,
+    head_heading: player::ReadableFromImpl<f32>,
+    arms_heading: player::ReadableFromImpl<f32>,
+    attack_cooldown: player::ReadableFromImpl<u8>,
+    intent: player::ReadableFromImpl<player::Intent>,
 }
 
 pub struct WasmImpl {
@@ -21,13 +27,49 @@ impl luarena::player::me::Host for MyState {
     fn hp(&mut self) -> f32 {
         *self.hp.read().unwrap()
     }
+
+    fn x(&mut self) -> f32 {
+        self.pos.read().unwrap().x
+    }
+
+    fn y(&mut self) -> f32 {
+        self.pos.read().unwrap().y
+    }
+
+    fn heading(&mut self) -> f32 {
+        *self.heading.read().unwrap()
+    }
+
+    fn head_heading(&mut self) -> f32 {
+        *self.head_heading.read().unwrap()
+    }
+
+    fn arms_heading(&mut self) -> f32 {
+        *self.arms_heading.read().unwrap()
+    }
+
+    fn attack_cooldown(&mut self) -> u8 {
+        *self.attack_cooldown.read().unwrap()
+    }
+
+    fn turn_remaining(&mut self) -> f32 {
+        self.intent.read().unwrap().turn_angle
+    }
+
+    fn head_turn_remaining(&mut self) -> f32 {
+        self.intent.read().unwrap().turn_head_angle
+    }
+
+    fn arms_turn_remaining(&mut self) -> f32 {
+        self.intent.read().unwrap().turn_arms_angle
+    }
 }
 
 impl WasmImpl {
     pub fn load(
         component_file: &Path,
         player_state: &player::State,
-        _intent: &player::ReadableFromImpl<player::Intent>,
+        intent: &player::ReadableFromImpl<player::Intent>,
     ) -> Result<Self, AddWasmPlayerError> {
         let engine = wasmtime::Engine::default();
         let component = wasmtime::component::Component::from_file(&engine, component_file)?;
@@ -41,6 +83,12 @@ impl WasmImpl {
                 ctx: builder.build(),
                 table: wasmtime_wasi::ResourceTable::new(),
                 hp: player_state.hp.clone(),
+                pos: player_state.pos.clone(),
+                heading: player_state.heading.clone(),
+                head_heading: player_state.head_heading.clone(),
+                arms_heading: player_state.arms_heading.clone(),
+                attack_cooldown: player_state.attack_cooldown.clone(),
+                intent: intent.clone(),
             },
         );
         let bindings = Player::instantiate::<MyState>(&mut store, &component, &linker)?;
@@ -167,10 +215,11 @@ impl player::Impl for WasmImpl {
                 Ok(player::Commands::from(commands))
             }
             player::Event::AttackHit(enemy, p) => {
-                let commands = self
-                    .bindings
-                    .luarena_player_handlers()
-                    .call_on_attack_hit(&mut self.store, &enemy.to_string(), p.into())?;
+                let commands = self.bindings.luarena_player_handlers().call_on_attack_hit(
+                    &mut self.store,
+                    &enemy.to_string(),
+                    p.into(),
+                )?;
                 Ok(player::Commands::from(commands))
             }
         }

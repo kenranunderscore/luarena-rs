@@ -35,7 +35,16 @@ interface handlers {
 }
 
 interface me {
+    x: func() -> f32;
+    y: func() -> f32;
     hp: func() -> f32;
+    heading: func() -> f32;
+    head-heading: func() -> f32;
+    arms-heading: func() -> f32;
+    attack-cooldown: func() -> u8;
+    turn-remaining: func() -> f32;
+    head-turn-remaining: func() -> f32;
+    arms-turn-remaining: func() -> f32;
 }
 
 world player {
