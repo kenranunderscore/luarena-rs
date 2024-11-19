@@ -399,27 +399,43 @@ fn attack_hits_player<'a>(
     })
 }
 
+#[derive(PartialEq)]
+pub enum EventRemembrance {
+    Remember,
+    Forget,
+}
+
 pub struct EventManager {
     current_events: StepEvents,
     all_events: Vec<StepEvents>,
+    mode: EventRemembrance,
 }
 
 impl EventManager {
-    pub fn new() -> EventManager {
+    pub fn new(mode: EventRemembrance) -> EventManager {
         Self {
             current_events: StepEvents::new(),
             all_events: vec![],
+            mode,
         }
     }
 
+    fn remember_events(&self) -> bool {
+        self.mode == EventRemembrance::Remember
+    }
+
     pub fn init_round(&mut self, round: u32, players: Vec<(u8, Point, player::Meta)>) {
-        self.all_events.push(self.current_events.clone());
+        if self.remember_events() {
+            self.all_events.push(self.current_events.clone());
+        }
         self.current_events =
             StepEvents::from_slice(&vec![GameEvent::RoundStarted(round, players)]);
     }
 
     pub fn init_tick(&mut self, tick: u32) {
-        self.all_events.push(self.current_events.clone());
+        if self.remember_events() {
+            self.all_events.push(self.current_events.clone());
+        }
         // HACK: find a good solution for the first events in a round
         let tick_event = GameEvent::Tick(tick);
         if tick == 0 {
@@ -732,8 +748,8 @@ pub fn run_game(
     game_writer: mpsc::Sender<StepEvents>,
     cancel: &Arc<AtomicBool>,
 ) -> Result<(), GameError> {
-    let mut event_manager = EventManager::new();
-    let max_rounds = 2;
+    let mut event_manager = EventManager::new(EventRemembrance::Forget);
+    let max_rounds = 1000;
     for round in 1..max_rounds + 1 {
         if cancel.load(Ordering::Relaxed) {
             println!("Game cancelled");
@@ -741,7 +757,5 @@ pub fn run_game(
         }
         run_round(game, round, &mut event_manager, delay, &game_writer, cancel)?;
     }
-    let f = std::fs::File::create("events").unwrap();
-    ciborium::into_writer(&event_manager.all_events, &f).unwrap();
     Ok(())
 }
