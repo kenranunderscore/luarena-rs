@@ -224,8 +224,8 @@ fn clamp_turn_angle(angle: f32) -> f32 {
 fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
     // TODO: is a HashMap appropriate here? is there a smarter way?
     let mut next_positions: HashMap<u8, (Delta, Point)> = HashMap::new();
-    for (id, player_state) in game.player_states.iter() {
-        let player = game.impls.get(id).unwrap();
+    for player_state in game.living_players() {
+        let player = game.impls.get(&player_state.id).unwrap();
         let delta = math_utils::clamp(player.intent().turn_angle, -MAX_TURN_RATE, MAX_TURN_RATE);
         event_manager.record(GameEvent::PlayerTurned(player_state.id, delta));
         let heading =
@@ -244,16 +244,16 @@ fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
         let pos = player_state.pos();
         let next_pos = pos.add(&delta.value);
         if valid_position(&next_pos) {
-            next_positions.insert(*id, (delta, next_pos));
+            next_positions.insert(player_state.id, (delta, next_pos));
         } else {
-            next_positions.insert(*id, (Delta::new(Point::zero()), pos.clone()));
+            next_positions.insert(player_state.id, (Delta::new(Point::zero()), pos.clone()));
         };
 
         transition_heads(player_state, player.intent().turn_head_angle, event_manager);
         transition_arms(player_state, player.intent().turn_arms_angle, event_manager);
     }
 
-    for player_state in game.player_states.values() {
+    for player_state in game.living_players() {
         let (delta, next) = next_positions.get(&player_state.id).unwrap();
         let mut collides = false;
         for (other_id, (_, other_next)) in next_positions.iter() {
@@ -598,13 +598,10 @@ fn check_for_round_end(game: &Game, event_manager: &mut EventManager) {
 }
 
 fn run_players(game: &mut Game, events: &[GameEvent]) -> Result<(), player::EventError> {
-    // FIXME: learn how to do this in a better way!
     let player_positions: Vec<(u8, String, Point)> = game
-        .player_states
-        .iter()
-        .map(|(id, player)| (*id, player.meta.name.clone(), player.pos().clone()))
+        .living_players()
+        .map(|player| (player.id, player.meta.name.clone(), player.pos().clone()))
         .collect();
-    // FIXME: only living players?
     for (id, player_state) in game.player_states.iter_mut() {
         let mut player_events = game_events_to_player_events(player_state, events);
         for (other_id, name, pos) in player_positions.iter() {

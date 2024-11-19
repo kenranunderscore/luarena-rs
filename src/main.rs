@@ -56,7 +56,7 @@ fn main() {
     let game_thread = std::thread::spawn(move || -> Result<(), GameError> {
         let mut game = Game::new();
         game.add_lua_player(Path::new("players/kai"))?;
-        // game.add_lua_player(Path::new("players/lloyd"))?;
+        game.add_lua_player(Path::new("players/lloyd"))?;
         game.add_wasm_player(Path::new("comp.wasm"))?;
 
         let delay = Duration::from_millis(7);
