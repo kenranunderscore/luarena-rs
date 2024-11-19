@@ -5,14 +5,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, RwLock};
 
 use rand::Rng;
-use serde::{Deserialize, Serialize};
 
 use crate::color::Color;
 use crate::math_utils::{self, Point, Sector, HALF_PI};
 use crate::player::{self, MovementDirection, Player};
 use crate::{lua_player, settings::*, wasm_player};
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub struct Attack {
     pub id: usize,
     pub pos: Point,
@@ -191,7 +190,7 @@ fn valid_position(p: &Point) -> bool {
         && p.y <= HEIGHT as f32 - PLAYER_RADIUS
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub struct Delta {
     pub value: Point,
 }
@@ -202,7 +201,7 @@ impl Delta {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub enum GameEvent {
     Tick(u32),
     RoundStarted(u32, Vec<(u8, Point, player::Meta)>),
@@ -644,7 +643,7 @@ fn run_players(game: &mut Game, events: &[GameEvent]) -> Result<(), player::Even
     Ok(())
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Clone)]
 pub struct StepEvents {
     pub events: Vec<GameEvent>,
 }

@@ -2,13 +2,12 @@ use rand::{
     distributions::{Distribution, Standard},
     Rng,
 };
-use serde::{Deserialize, Serialize};
 
 pub const HALF_PI: f32 = PI / 2.0;
 pub const TWO_PI: f32 = PI * 2.0;
 pub const PI: f32 = std::f32::consts::PI;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub struct Point {
     pub x: f32,
     pub y: f32,

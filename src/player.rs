@@ -1,15 +1,13 @@
 use core::fmt;
 use std::sync::{Arc, RwLock};
 
-use serde::{Deserialize, Serialize};
-
 use crate::{
     color::Color,
     math_utils::{self, Point},
     settings,
 };
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Meta {
     pub name: String,
     pub color: Color,

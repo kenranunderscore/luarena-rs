@@ -21,26 +21,25 @@ mod render;
 mod settings;
 mod wasm_player;
 
-fn _run_replay(
-    history_file: &Path,
-    sender: Sender<StepEvents>,
-    delay: &Duration,
-    cancel: &Arc<AtomicBool>,
-) -> Option<()> {
-    let f = std::fs::File::open(history_file).ok()?;
-    let steps: Vec<StepEvents> = ciborium::from_reader(f).ok()?;
-    for step_events in steps {
-        if cancel.load(Ordering::Relaxed) {
-            break;
-        }
-
-        sender
-            .send(step_events)
-            .expect("Failed sending step events");
-        std::thread::sleep(*delay);
-    }
-    Some(())
-}
+// fn _run_replay(
+//     history_file: &Path,
+//     sender: Sender<StepEvents>,
+//     delay: &Duration,
+//     cancel: &Arc<AtomicBool>,
+// ) -> Option<()> {
+//     let f = std::fs::File::open(history_file).ok()?;
+//     let steps: Vec<StepEvents> = todo!();
+//     for step_events in steps {
+//         if cancel.load(Ordering::Relaxed) {
+//             break;
+//         }
+//         sender
+//             .send(step_events)
+//             .expect("Failed sending step events");
+//         std::thread::sleep(*delay);
+//     }
+//     Some(())
+// }
 
 fn main() {
     let (game_writer, game_reader) = mpsc::channel();
