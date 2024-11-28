@@ -11,28 +11,31 @@ use crate::math_utils::{self, Point, Sector, HALF_PI};
 use crate::player::{self, MovementDirection, Player};
 use crate::{lua_player, settings::*, wasm_player};
 
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
+pub struct AttackId(usize);
+
 #[derive(Clone, Debug)]
 pub struct Attack {
-    pub id: usize,
+    pub id: AttackId,
     pub pos: Point,
     pub owner: player::Id,
     pub heading: f32,
     pub velocity: f32,
 }
 
-pub struct Ids {
+pub struct AttackIds {
     next: usize,
 }
 
-impl Ids {
+impl AttackIds {
     pub fn new() -> Self {
         Self { next: 0 }
     }
 
-    pub fn next(&mut self) -> usize {
+    pub fn next(&mut self) -> AttackId {
         let next = self.next;
         self.next += 1;
-        next
+        AttackId(next)
     }
 }
 
@@ -49,7 +52,7 @@ pub struct Game {
     pub impls: HashMap<player::Id, Player>,
     pub attacks: Vec<Attack>,
     pub round_state: RoundState,
-    attack_ids: Ids,
+    attack_ids: AttackIds,
 }
 
 pub struct AddPlayerError {
@@ -78,7 +81,7 @@ impl Game {
             player_states: HashMap::new(),
             impls: HashMap::new(),
             attacks: vec![],
-            attack_ids: Ids::new(),
+            attack_ids: AttackIds::new(),
             round_state: RoundState::Ongoing,
         }
     }
@@ -170,10 +173,10 @@ impl Game {
             .expect("player {id} not found")
     }
 
-    pub fn attack(&mut self, id: usize) -> &mut Attack {
+    pub fn attack(&mut self, id: &AttackId) -> &mut Attack {
         self.attacks
             .iter_mut()
-            .find(|attack| attack.id == id)
+            .find(|attack| attack.id == *id)
             .expect("attack {id} not found")
     }
 
@@ -212,9 +215,9 @@ pub enum GameEvent {
     RoundOver(Option<player::Id>),
     PlayerHeadTurned(player::Id, f32),
     PlayerArmsTurned(player::Id, f32),
-    Hit(usize, player::Id, player::Id, Point),
-    AttackAdvanced(usize, Point),
-    AttackMissed(usize),
+    Hit(AttackId, player::Id, player::Id, Point),
+    AttackAdvanced(AttackId, Point),
+    AttackMissed(AttackId),
     // FIXME: does this really need the owner id twice?
     AttackCreated(player::Id, Attack),
     PlayerPositionUpdated(player::Id, Delta),
@@ -573,7 +576,7 @@ fn advance_game_state(game: &mut Game, events: &[GameEvent]) {
                 *game.player_state(victim_id).hp.write().unwrap() -= ATTACK_DAMAGE;
             }
             GameEvent::AttackAdvanced(id, pos) => {
-                let attack = game.attack(*id);
+                let attack = game.attack(id);
                 attack.pos.set_to(&pos);
             }
             GameEvent::AttackMissed(id) => {
