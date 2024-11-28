@@ -222,6 +222,7 @@ pub enum GameEvent {
     AttackCreated(player::Id, Attack),
     PlayerPositionUpdated(player::Id, Delta),
     PlayerTurned(player::Id, f32),
+    PlayerDied(player::Id),
 }
 
 fn clamp_turn_angle(angle: f32) -> f32 {
@@ -316,7 +317,7 @@ fn players_collide(p: &Point, q: &Point) -> bool {
 }
 
 fn game_events_to_player_events(
-    player: &player::State,
+    player_state: &player::State,
     game_events: &[GameEvent],
 ) -> Vec<player::Event> {
     let mut player_events = Vec::new();
@@ -334,19 +335,24 @@ fn game_events_to_player_events(
             GameEvent::PlayerHeadTurned(_, _) => {}
             GameEvent::PlayerArmsTurned(_, _) => {}
             GameEvent::Hit(_, owner_id, victim_id, pos) => {
-                if player.id == *victim_id {
+                if player_state.id == *victim_id {
                     // FIXME: don't use id
                     player_events.push(player::Event::HitBy(owner_id.clone()));
-                    if !player.alive() {
-                        player_events.push(player::Event::Death);
-                    }
-                } else if player.id == *owner_id {
+                } else if player_state.id == *owner_id {
                     player_events.push(player::Event::AttackHit(victim_id.clone(), pos.clone()));
                 }
             }
             GameEvent::AttackAdvanced(_, _) => {}
             GameEvent::AttackMissed(_) => {}
             GameEvent::AttackCreated(_, _) => {}
+            GameEvent::PlayerDied(id) => {
+                let death_event = if player_state.id == *id {
+                    player::Event::Death
+                } else {
+                    player::Event::EnemyDied(id.clone().to_string()) // FIXME: name
+                };
+                player_events.push(death_event);
+            }
         }
     }
     player_events
@@ -464,6 +470,11 @@ impl EventManager {
     }
 }
 
+// FIXME: should take attack type or even concrete attack
+fn remaining_hp(current_hp: f32) -> f32 {
+    current_hp - ATTACK_DAMAGE
+}
+
 fn transition_attacks(game: &Game, event_manager: &mut EventManager) {
     for attack in game.attacks.iter() {
         let next_pos = math_utils::line_endpoint(
@@ -473,14 +484,17 @@ fn transition_attacks(game: &Game, event_manager: &mut EventManager) {
             attack.heading,
         );
         if inside_arena(&next_pos) {
-            if let Some(player) = attack_hits_player(&attack, game.living_players()) {
+            if let Some(player_state) = attack_hits_player(&attack, game.living_players()) {
                 // FIXME: new_pos or old position here?
                 event_manager.record(GameEvent::Hit(
                     attack.id,
                     attack.owner.clone(),
-                    player.id.clone(),
+                    player_state.id.clone(),
                     next_pos,
                 ));
+                if remaining_hp(player_state.hp()) <= 0.0 {
+                    event_manager.record(GameEvent::PlayerDied(player_state.id.clone()));
+                }
             } else {
                 event_manager.record(GameEvent::AttackAdvanced(attack.id, next_pos));
             }
@@ -591,6 +605,7 @@ fn advance_game_state(game: &mut Game, events: &[GameEvent]) {
                 let lua_impl = game.player(owner);
                 lua_impl.intent.write().unwrap().attack = false;
             }
+            GameEvent::PlayerDied(_) => {}
         }
     }
 }

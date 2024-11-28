@@ -194,6 +194,11 @@ impl<'a> GameRenderer<'a> {
             GameEvent::AttackAdvanced(_, pos) => attack(d, &pos),
             GameEvent::AttackMissed(_) => {}
             GameEvent::AttackCreated(_, a) => attack(d, &a.pos),
+            GameEvent::PlayerDied(id) => {
+                if let Some(index) = self.state.players.iter().position(|p| p.id == id) {
+                    self.state.players.remove(index);
+                }
+            }
         }
     }
 

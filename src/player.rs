@@ -53,6 +53,7 @@ pub enum Event {
     RoundStarted(u32),
     EnemySeen(String, Point),
     Death,
+    EnemyDied(String),
     HitBy(Id),
     AttackHit(Id, Point),
 }

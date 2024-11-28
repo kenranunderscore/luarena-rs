@@ -222,6 +222,9 @@ impl Impl for LuaImpl {
                 self.call_event_handler("on_attack_hit", (*id, pos.clone()))
             }
             Event::Death => self.call_event_handler("on_death", ()),
+            Event::EnemyDied(enemy_id) => {
+                self.call_event_handler("on_enemy_death", enemy_id.to_string())
+            }
         }
     }
 }

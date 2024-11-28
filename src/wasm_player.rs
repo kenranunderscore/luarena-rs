@@ -222,6 +222,13 @@ impl player::Impl for WasmImpl {
                 )?;
                 Ok(player::Commands::from(commands))
             }
+            player::Event::EnemyDied(enemy_id) => {
+                let commands = self
+                    .bindings
+                    .luarena_player_handlers()
+                    .call_on_enemy_died(&mut self.store, &enemy_id.to_string())?;
+                Ok(player::Commands::from(commands))
+            }
         }
     }
 }

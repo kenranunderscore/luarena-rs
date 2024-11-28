@@ -41,4 +41,8 @@ function m.on_enemy_seen(name, p)
    return res
 end
 
+function m.on_enemy_death(enemy)
+   me.log("enemy died: " .. enemy)
+end
+
 return m
