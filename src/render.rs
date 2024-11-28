@@ -4,7 +4,7 @@ use raylib::prelude::*;
 
 use crate::game::{GameEvent, StepEvents};
 use crate::math_utils::Point;
-use crate::{math_utils, settings::*};
+use crate::{math_utils, player, settings::*};
 
 const VISION_COLOR: Color = Color {
     r: 150,
@@ -14,7 +14,7 @@ const VISION_COLOR: Color = Color {
 };
 
 struct PlayerData {
-    id: u8,
+    id: player::Id,
     color: Color,
     x: f32,
     y: f32,
@@ -24,7 +24,7 @@ struct PlayerData {
 }
 
 impl PlayerData {
-    fn new(id: u8, color: crate::color::Color, p: &Point) -> Self {
+    fn new(id: player::Id, color: crate::color::Color, p: &Point) -> Self {
         Self {
             id,
             color: to_raylib_color(&color),
@@ -48,8 +48,8 @@ impl GameData {
         }
     }
 
-    fn player(&mut self, id: u8) -> &mut PlayerData {
-        self.players.iter_mut().find(|p| p.id == id).unwrap()
+    fn player(&mut self, id: &player::Id) -> &mut PlayerData {
+        self.players.iter_mut().find(|p| p.id == *id).unwrap()
     }
 }
 
@@ -174,20 +174,20 @@ impl<'a> GameRenderer<'a> {
             }
             GameEvent::RoundOver(_) => {}
             GameEvent::PlayerPositionUpdated(id, delta) => {
-                let player = self.state.player(id);
+                let player = self.state.player(&id);
                 player.x = player.x + delta.value.x;
                 player.y = player.y + delta.value.y;
             }
             GameEvent::PlayerTurned(id, delta) => {
-                let player = self.state.player(id);
+                let player = self.state.player(&id);
                 player.heading = player.heading + delta;
             }
             GameEvent::PlayerHeadTurned(id, delta) => {
-                let player = self.state.player(id);
+                let player = self.state.player(&id);
                 player.head_heading = player.head_heading + delta;
             }
             GameEvent::PlayerArmsTurned(id, delta) => {
-                let player = self.state.player(id);
+                let player = self.state.player(&id);
                 player.arms_heading = player.arms_heading + delta;
             }
             GameEvent::Hit(_, _, _, _) => {}

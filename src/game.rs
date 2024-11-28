@@ -15,7 +15,7 @@ use crate::{lua_player, settings::*, wasm_player};
 pub struct Attack {
     pub id: usize,
     pub pos: Point,
-    pub owner: u8,
+    pub owner: player::Id,
     pub heading: f32,
     pub velocity: f32,
 }
@@ -38,15 +38,15 @@ impl Ids {
 
 pub enum RoundState {
     Ongoing,
-    Won(u8),
+    Won(player::Id),
     Draw,
 }
 
 pub struct Game {
     pub tick: u32,
     pub round: u32,
-    pub player_states: HashMap<u8, player::State>,
-    pub impls: HashMap<u8, Player>,
+    pub player_states: HashMap<player::Id, player::State>,
+    pub impls: HashMap<player::Id, Player>,
     pub attacks: Vec<Attack>,
     pub round_state: RoundState,
     attack_ids: Ids,
@@ -93,7 +93,7 @@ impl Game {
             lua_player::LuaImpl::load(player_dir, &Path::new(&entrypoint), &player_state, &intent)?;
         self.player_states.insert(player_state.id, player_state);
         self.impls.insert(
-            id,
+            id.into(),
             Player {
                 implementation: Box::new(lua_impl),
                 intent,
@@ -119,7 +119,7 @@ impl Game {
             .map_err(|e| AddPlayerError { message: e.message })?;
         self.player_states.insert(player_state.id, player_state);
         self.impls.insert(
-            id,
+            id.into(),
             Player {
                 implementation: Box::new(wasm_impl),
                 intent,
@@ -147,7 +147,11 @@ impl Game {
             // FIXME: it would be nice to change state later (as with the rest),
             // but that creates problems with the check for "round over"
             player_state.reset(random_pos.clone());
-            players.push((player_state.id, random_pos, player_state.meta.clone()));
+            players.push((
+                player_state.id.clone(),
+                random_pos,
+                player_state.meta.clone(),
+            ));
         }
         event_manager.init_round(round, players);
         for (_, player) in self.impls.iter_mut() {
@@ -159,10 +163,10 @@ impl Game {
         self.player_states.values().filter(|player| player.alive())
     }
 
-    pub fn player_state(&mut self, id: u8) -> &mut player::State {
+    pub fn player_state(&mut self, id: &player::Id) -> &mut player::State {
         self.player_states
             .values_mut()
-            .find(|player| player.id == id)
+            .find(|player| player.id == *id)
             .expect("player {id} not found")
     }
 
@@ -173,8 +177,8 @@ impl Game {
             .expect("attack {id} not found")
     }
 
-    pub fn player(&mut self, id: u8) -> &mut Player {
-        self.impls.get_mut(&id).unwrap()
+    pub fn player(&mut self, id: &player::Id) -> &mut Player {
+        self.impls.get_mut(id).unwrap()
     }
 }
 
@@ -204,16 +208,17 @@ impl Delta {
 #[derive(Clone, Debug)]
 pub enum GameEvent {
     Tick(u32),
-    RoundStarted(u32, Vec<(u8, Point, player::Meta)>),
-    RoundOver(Option<u8>),
-    PlayerHeadTurned(u8, f32),
-    PlayerArmsTurned(u8, f32),
-    Hit(usize, u8, u8, Point),
+    RoundStarted(u32, Vec<(player::Id, Point, player::Meta)>),
+    RoundOver(Option<player::Id>),
+    PlayerHeadTurned(player::Id, f32),
+    PlayerArmsTurned(player::Id, f32),
+    Hit(usize, player::Id, player::Id, Point),
     AttackAdvanced(usize, Point),
     AttackMissed(usize),
-    AttackCreated(u8, Attack),
-    PlayerPositionUpdated(u8, Delta),
-    PlayerTurned(u8, f32),
+    // FIXME: does this really need the owner id twice?
+    AttackCreated(player::Id, Attack),
+    PlayerPositionUpdated(player::Id, Delta),
+    PlayerTurned(player::Id, f32),
 }
 
 fn clamp_turn_angle(angle: f32) -> f32 {
@@ -222,11 +227,11 @@ fn clamp_turn_angle(angle: f32) -> f32 {
 
 fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
     // TODO: is a HashMap appropriate here? is there a smarter way?
-    let mut next_positions: HashMap<u8, (Delta, Point)> = HashMap::new();
+    let mut next_positions: HashMap<player::Id, (Delta, Point)> = HashMap::new();
     for player_state in game.living_players() {
-        let player = game.impls.get(&player_state.id).unwrap();
+        let player = game.impls.get(&player_state.id.clone()).unwrap();
         let delta = math_utils::clamp(player.intent().turn_angle, -MAX_TURN_RATE, MAX_TURN_RATE);
-        event_manager.record(GameEvent::PlayerTurned(player_state.id, delta));
+        event_manager.record(GameEvent::PlayerTurned(player_state.id.clone(), delta));
         let heading =
             math_utils::normalize_absolute_angle(*player_state.heading.read().unwrap() + delta);
         let velocity = f32::min(player.intent().distance, MAX_VELOCITY);
@@ -243,9 +248,12 @@ fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
         let pos = player_state.pos();
         let next_pos = pos.add(&delta.value);
         if valid_position(&next_pos) {
-            next_positions.insert(player_state.id, (delta, next_pos));
+            next_positions.insert(player_state.id.clone(), (delta, next_pos));
         } else {
-            next_positions.insert(player_state.id, (Delta::new(Point::zero()), pos.clone()));
+            next_positions.insert(
+                player_state.id.clone(),
+                (Delta::new(Point::zero()), pos.clone()),
+            );
         };
 
         transition_heads(player_state, player.intent().turn_head_angle, event_manager);
@@ -264,9 +272,9 @@ fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
             }
         }
         let event = if !collides {
-            GameEvent::PlayerPositionUpdated(player_state.id, delta.clone())
+            GameEvent::PlayerPositionUpdated(player_state.id.clone(), delta.clone())
         } else {
-            GameEvent::PlayerPositionUpdated(player_state.id, Delta::new(Point::zero()))
+            GameEvent::PlayerPositionUpdated(player_state.id.clone(), Delta::new(Point::zero()))
         };
         event_manager.record(event);
     }
@@ -281,7 +289,7 @@ fn transition_heads(
     let current_heading = player_state.head_heading();
     let effective_delta = clamp_turn_angle(current_heading + delta) - current_heading;
     event_manager.record(GameEvent::PlayerHeadTurned(
-        player_state.id,
+        player_state.id.clone(),
         effective_delta,
     ));
 }
@@ -295,7 +303,7 @@ fn transition_arms(
     let current_heading = player_state.arms_heading();
     let effective_delta = clamp_turn_angle(current_heading + delta) - current_heading;
     event_manager.record(GameEvent::PlayerArmsTurned(
-        player_state.id,
+        player_state.id.clone(),
         effective_delta,
     ));
 }
@@ -325,12 +333,12 @@ fn game_events_to_player_events(
             GameEvent::Hit(_, owner_id, victim_id, pos) => {
                 if player.id == *victim_id {
                     // FIXME: don't use id
-                    player_events.push(player::Event::HitBy(*owner_id));
+                    player_events.push(player::Event::HitBy(owner_id.clone()));
                     if !player.alive() {
                         player_events.push(player::Event::Death);
                     }
                 } else if player.id == *owner_id {
-                    player_events.push(player::Event::AttackHit(*victim_id, pos.clone()));
+                    player_events.push(player::Event::AttackHit(victim_id.clone(), pos.clone()));
                 }
             }
             GameEvent::AttackAdvanced(_, _) => {}
@@ -374,12 +382,12 @@ fn create_attacks(game: &mut Game, event_manager: &mut EventManager) {
         if will_attack {
             let attack = Attack {
                 id: game.attack_ids.next(),
-                owner: *id,
+                owner: id.clone(),
                 pos: player_state.pos().clone(),
                 velocity: 2.5,
                 heading: player_state.effective_arms_heading(),
             };
-            event_manager.record(GameEvent::AttackCreated(*id, attack));
+            event_manager.record(GameEvent::AttackCreated(id.clone(), attack));
         }
     }
 }
@@ -423,7 +431,7 @@ impl EventManager {
         self.mode == EventRemembrance::Remember
     }
 
-    pub fn init_round(&mut self, round: u32, players: Vec<(u8, Point, player::Meta)>) {
+    pub fn init_round(&mut self, round: u32, players: Vec<(player::Id, Point, player::Meta)>) {
         if self.remember_events() {
             self.all_events.push(self.current_events.clone());
         }
@@ -464,7 +472,12 @@ fn transition_attacks(game: &Game, event_manager: &mut EventManager) {
         if inside_arena(&next_pos) {
             if let Some(player) = attack_hits_player(&attack, game.living_players()) {
                 // FIXME: new_pos or old position here?
-                event_manager.record(GameEvent::Hit(attack.id, attack.owner, player.id, next_pos));
+                event_manager.record(GameEvent::Hit(
+                    attack.id,
+                    attack.owner.clone(),
+                    player.id.clone(),
+                    next_pos,
+                ));
             } else {
                 event_manager.record(GameEvent::AttackAdvanced(attack.id, next_pos));
             }
@@ -499,21 +512,21 @@ fn advance_game_state(game: &mut Game, events: &[GameEvent]) {
             GameEvent::PlayerPositionUpdated(id, delta) => {
                 let d;
                 {
-                    let player = game.player_state(*id);
+                    let player = game.player_state(id);
                     let mut pos = player.pos.write().unwrap();
                     d = pos.dist(&Point::zero()); // TODO: length of a Vec2
                     pos.x += delta.value.x;
                     pos.y += delta.value.y;
                 }
-                let lua_impl = game.player(*id);
+                let lua_impl = game.player(id);
                 let distance = lua_impl.intent().distance;
                 lua_impl.intent.write().unwrap().distance = f32::max(distance - d, 0.0);
             }
             GameEvent::PlayerTurned(id, delta) => {
-                let player = game.player_state(*id);
+                let player = game.player_state(id);
                 let heading = player.heading() + *delta;
                 player.set_heading(math_utils::normalize_absolute_angle(heading));
-                let lua_impl = game.player(*id);
+                let lua_impl = game.player(id);
                 let turn_angle = lua_impl.intent().turn_angle;
                 lua_impl.intent.write().unwrap().turn_angle = if turn_angle.abs() < MAX_TURN_RATE {
                     0.0
@@ -522,10 +535,10 @@ fn advance_game_state(game: &mut Game, events: &[GameEvent]) {
                 };
             }
             GameEvent::PlayerHeadTurned(id, delta) => {
-                let player = game.player_state(*id);
+                let player = game.player_state(id);
                 let heading = player.head_heading() + *delta;
                 player.set_head_heading(heading);
-                let lua_impl = game.player(*id);
+                let lua_impl = game.player(id);
                 let intended = lua_impl.intent().turn_head_angle;
                 lua_impl.intent.write().unwrap().turn_head_angle =
                     // FIXME: (here and elsewhere): we don't need this if we
@@ -537,10 +550,10 @@ fn advance_game_state(game: &mut Game, events: &[GameEvent]) {
                     };
             }
             GameEvent::PlayerArmsTurned(id, delta) => {
-                let player = game.player_state(*id);
+                let player = game.player_state(id);
                 let heading = clamp_turn_angle(player.arms_heading() + *delta);
                 player.set_arms_heading(heading);
-                let lua_impl = game.player(*id);
+                let lua_impl = game.player(id);
                 let intended = lua_impl.intent().turn_arms_angle;
                 lua_impl.intent.write().unwrap().turn_arms_angle =
                     if intended.abs() < MAX_ARMS_TURN_RATE {
@@ -557,7 +570,7 @@ fn advance_game_state(game: &mut Game, events: &[GameEvent]) {
                 {
                     game.attacks.remove(index);
                 }
-                *game.player_state(*victim_id).hp.write().unwrap() -= ATTACK_DAMAGE;
+                *game.player_state(victim_id).hp.write().unwrap() -= ATTACK_DAMAGE;
             }
             GameEvent::AttackAdvanced(id, pos) => {
                 let attack = game.attack(*id);
@@ -570,9 +583,9 @@ fn advance_game_state(game: &mut Game, events: &[GameEvent]) {
             }
             GameEvent::AttackCreated(owner, attack) => {
                 game.attacks.push(attack.clone());
-                let player = game.player_state(*owner);
+                let player = game.player_state(owner);
                 player.set_attack_cooldown(ATTACK_COOLDOWN);
-                let lua_impl = game.player(*owner);
+                let lua_impl = game.player(owner);
                 lua_impl.intent.write().unwrap().attack = false;
             }
         }
@@ -589,7 +602,7 @@ fn check_for_round_end(game: &Game, event_manager: &mut EventManager) {
         1 => {
             println!("some");
             event_manager.record(GameEvent::RoundOver(Some(
-                game.living_players().nth(0).unwrap().id,
+                game.living_players().nth(0).unwrap().id.clone(),
             )));
         }
         _ => {}
@@ -597,9 +610,15 @@ fn check_for_round_end(game: &Game, event_manager: &mut EventManager) {
 }
 
 fn run_players(game: &mut Game, events: &[GameEvent]) -> Result<(), player::EventError> {
-    let player_positions: Vec<(u8, String, Point)> = game
+    let player_positions: Vec<(player::Id, String, Point)> = game
         .living_players()
-        .map(|player| (player.id, player.meta.name.clone(), player.pos().clone()))
+        .map(|player| {
+            (
+                player.id.clone(),
+                player.meta.name.clone(),
+                player.pos().clone(),
+            )
+        })
         .collect();
     for (id, player_state) in game.player_states.iter_mut() {
         let mut player_events = game_events_to_player_events(player_state, events);

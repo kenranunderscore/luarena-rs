@@ -16,6 +16,12 @@ impl<'a> IntoLua<'a> for Point {
     }
 }
 
+impl<'a> IntoLua<'a> for Id {
+    fn into_lua(self, lua: &'a Lua) -> LuaResult<LuaValue<'a>> {
+        self.0.into_lua(lua)
+    }
+}
+
 impl<'a> FromLua<'a> for MovementDirection {
     fn from_lua(value: LuaValue<'a>, _lua: &'a Lua) -> LuaResult<Self> {
         match value {

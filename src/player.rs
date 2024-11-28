@@ -53,8 +53,8 @@ pub enum Event {
     RoundStarted(u32),
     EnemySeen(String, Point),
     Death,
-    HitBy(u8),
-    AttackHit(u8, Point),
+    HitBy(Id),
+    AttackHit(Id, Point),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -119,8 +119,23 @@ pub trait Impl {
 
 pub type ReadableFromImpl<T> = Arc<RwLock<T>>;
 
+#[derive(PartialEq, Eq, Hash, Clone, Debug, Copy)]
+pub struct Id(pub u8);
+
+impl From<u8> for Id {
+    fn from(value: u8) -> Self {
+        Self(value)
+    }
+}
+
+impl fmt::Display for Id {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 pub struct State {
-    pub id: u8,
+    pub id: Id,
     pub hp: ReadableFromImpl<f32>,
     pub meta: Meta,
     pub pos: ReadableFromImpl<Point>,
@@ -133,7 +148,7 @@ pub struct State {
 impl State {
     pub fn new(meta: Meta, id: u8) -> Self {
         Self {
-            id,
+            id: id.into(),
             hp: Arc::new(RwLock::new(settings::INITIAL_HP)),
             meta,
             pos: Arc::new(RwLock::new(Point::zero())),
