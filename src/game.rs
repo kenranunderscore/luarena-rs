@@ -89,24 +89,25 @@ impl Game {
     // FIXME: consolidate with below
     pub fn add_lua_player(&mut self, player_dir: &Path) -> Result<(), AddPlayerError> {
         let (meta, entrypoint) = player::Meta::from_lua(player_dir)?;
-        let id = self.player_states.len() as u8; // FIXME
-        let player_state = player::State::new(meta, id);
+        let player_state = player::State::new(meta);
         let intent = Arc::new(RwLock::new(player::Intent::default()));
         let lua_impl =
             lua_player::LuaImpl::load(player_dir, &Path::new(&entrypoint), &player_state, &intent)?;
-        self.player_states.insert(player_state.id, player_state);
         self.impls.insert(
-            id.into(),
+            player_state.id().clone(),
             Player {
                 implementation: Box::new(lua_impl),
                 intent,
             },
         );
+        self.player_states.insert(*player_state.id(), player_state);
         Ok(())
     }
 
     pub fn add_wasm_player(&mut self, component_file: &Path) -> Result<(), AddPlayerError> {
+        // FIXME: wasm player meta
         let meta = player::Meta {
+            id: player::Id(uuid::Uuid::nil()),
             name: "foo".to_string(),
             color: Color {
                 red: 0,
@@ -115,19 +116,18 @@ impl Game {
             },
             _version: "1".to_string(),
         };
-        let id = self.player_states.len() as u8; // FIXME
-        let player_state = player::State::new(meta, id);
+        let player_state = player::State::new(meta);
         let intent = Arc::new(RwLock::new(player::Intent::default()));
         let wasm_impl = wasm_player::WasmImpl::load(component_file, &player_state, &intent)
             .map_err(|e| AddPlayerError { message: e.message })?;
-        self.player_states.insert(player_state.id, player_state);
         self.impls.insert(
-            id.into(),
+            player_state.id().clone(),
             Player {
                 implementation: Box::new(wasm_impl),
                 intent,
             },
         );
+        self.player_states.insert(*player_state.id(), player_state);
         Ok(())
     }
 
@@ -151,7 +151,7 @@ impl Game {
             // but that creates problems with the check for "round over"
             player_state.reset(random_pos.clone());
             players.push((
-                player_state.id.clone(),
+                player_state.id().clone(),
                 random_pos,
                 player_state.meta.clone(),
             ));
@@ -169,7 +169,7 @@ impl Game {
     pub fn player_state(&mut self, id: &player::Id) -> &mut player::State {
         self.player_states
             .values_mut()
-            .find(|player| player.id == *id)
+            .find(|p| p.id() == id)
             .expect("player {id} not found")
     }
 
@@ -233,9 +233,9 @@ fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
     // TODO: is a HashMap appropriate here? is there a smarter way?
     let mut next_positions: HashMap<player::Id, (Delta, Point)> = HashMap::new();
     for player_state in game.living_players() {
-        let player = game.impls.get(&player_state.id.clone()).unwrap();
+        let player = game.impls.get(&player_state.id().clone()).unwrap();
         let delta = math_utils::clamp(player.intent().turn_angle, -MAX_TURN_RATE, MAX_TURN_RATE);
-        event_manager.record(GameEvent::PlayerTurned(player_state.id.clone(), delta));
+        event_manager.record(GameEvent::PlayerTurned(player_state.id().clone(), delta));
         let heading =
             math_utils::normalize_absolute_angle(*player_state.heading.read().unwrap() + delta);
         let velocity = f32::min(player.intent().distance, MAX_VELOCITY);
@@ -252,10 +252,10 @@ fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
         let pos = player_state.pos();
         let next_pos = pos.add(&delta.value);
         if valid_position(&next_pos) {
-            next_positions.insert(player_state.id.clone(), (delta, next_pos));
+            next_positions.insert(player_state.id().clone(), (delta, next_pos));
         } else {
             next_positions.insert(
-                player_state.id.clone(),
+                player_state.id().clone(),
                 (Delta::new(Point::zero()), pos.clone()),
             );
         };
@@ -265,10 +265,10 @@ fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
     }
 
     for player_state in game.living_players() {
-        let (delta, next) = next_positions.get(&player_state.id).unwrap();
+        let (delta, next) = next_positions.get(&player_state.id()).unwrap();
         let mut collides = false;
         for (other_id, (_, other_next)) in next_positions.iter() {
-            if player_state.id != *other_id {
+            if player_state.id() != other_id {
                 if players_collide(&next, &other_next) {
                     // TODO: collision event
                     collides = true;
@@ -276,9 +276,9 @@ fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
             }
         }
         let event = if !collides {
-            GameEvent::PlayerPositionUpdated(player_state.id.clone(), delta.clone())
+            GameEvent::PlayerPositionUpdated(player_state.id().clone(), delta.clone())
         } else {
-            GameEvent::PlayerPositionUpdated(player_state.id.clone(), Delta::new(Point::zero()))
+            GameEvent::PlayerPositionUpdated(player_state.id().clone(), Delta::new(Point::zero()))
         };
         event_manager.record(event);
     }
@@ -293,7 +293,7 @@ fn transition_heads(
     let current_heading = player_state.head_heading();
     let effective_delta = clamp_turn_angle(current_heading + delta) - current_heading;
     event_manager.record(GameEvent::PlayerHeadTurned(
-        player_state.id.clone(),
+        player_state.id().clone(),
         effective_delta,
     ));
 }
@@ -307,7 +307,7 @@ fn transition_arms(
     let current_heading = player_state.arms_heading();
     let effective_delta = clamp_turn_angle(current_heading + delta) - current_heading;
     event_manager.record(GameEvent::PlayerArmsTurned(
-        player_state.id.clone(),
+        player_state.id().clone(),
         effective_delta,
     ));
 }
@@ -331,7 +331,7 @@ fn game_events_to_player_events(
             }
             GameEvent::RoundEnded(opt_id) => match opt_id {
                 Some(id) => {
-                    if *id == player_state.id {
+                    if id == player_state.id() {
                         player_events.push(player::Event::RoundWon);
                     }
                     player_events.push(player::Event::RoundEnded(opt_id.map(|id| id.to_string())));
@@ -343,10 +343,10 @@ fn game_events_to_player_events(
             GameEvent::PlayerHeadTurned(_, _) => {}
             GameEvent::PlayerArmsTurned(_, _) => {}
             GameEvent::Hit(_, owner_id, victim_id, pos) => {
-                if player_state.id == *victim_id {
+                if player_state.id() == victim_id {
                     // FIXME: don't use id
                     player_events.push(player::Event::HitBy(owner_id.clone()));
-                } else if player_state.id == *owner_id {
+                } else if player_state.id() == owner_id {
                     player_events.push(player::Event::AttackHit(victim_id.clone(), pos.clone()));
                 }
             }
@@ -354,7 +354,7 @@ fn game_events_to_player_events(
             GameEvent::AttackMissed(_) => {}
             GameEvent::AttackCreated(_, _) => {}
             GameEvent::PlayerDied(id) => {
-                let death_event = if player_state.id == *id {
+                let death_event = if player_state.id() == id {
                     player::Event::Death
                 } else {
                     player::Event::EnemyDied(id.clone().to_string()) // FIXME: name
@@ -418,7 +418,7 @@ fn attack_hits_player<'a>(
     mut players: impl Iterator<Item = &'a player::State>,
 ) -> Option<&'a player::State> {
     players.find(|player| {
-        player.id != attack.owner
+        *player.id() != attack.owner
             && attack.pos.dist(&player.pos()) <= ATTACK_RADIUS + PLAYER_RADIUS as f32
     })
 }
@@ -497,11 +497,11 @@ fn transition_attacks(game: &Game, event_manager: &mut EventManager) {
                 event_manager.record(GameEvent::Hit(
                     attack.id,
                     attack.owner.clone(),
-                    player_state.id.clone(),
+                    player_state.id().clone(),
                     next_pos,
                 ));
                 if remaining_hp(player_state.hp()) <= 0.0 {
-                    event_manager.record(GameEvent::PlayerDied(player_state.id.clone()));
+                    event_manager.record(GameEvent::PlayerDied(player_state.id().clone()));
                 }
             } else {
                 event_manager.record(GameEvent::AttackAdvanced(attack.id, next_pos));
@@ -628,7 +628,7 @@ fn check_for_round_end(game: &Game, event_manager: &mut EventManager) {
         1 => {
             println!("some");
             event_manager.record(GameEvent::RoundEnded(Some(
-                game.living_players().nth(0).unwrap().id.clone(),
+                game.living_players().nth(0).unwrap().id().clone(),
             )));
         }
         _ => {}
@@ -640,7 +640,7 @@ fn run_players(game: &mut Game, events: &[GameEvent]) -> Result<(), player::Even
         .living_players()
         .map(|player| {
             (
-                player.id.clone(),
+                player.id().clone(),
                 player.meta.name.clone(),
                 player.pos().clone(),
             )
@@ -649,7 +649,7 @@ fn run_players(game: &mut Game, events: &[GameEvent]) -> Result<(), player::Even
     for (id, player_state) in game.player_states.iter_mut() {
         let mut player_events = game_events_to_player_events(player_state, events);
         for (other_id, name, pos) in player_positions.iter() {
-            if *other_id != player_state.id {
+            if other_id != player_state.id() {
                 if can_spot(
                     &player_state.pos(),
                     player_state.effective_head_heading(),

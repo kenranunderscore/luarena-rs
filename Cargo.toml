@@ -8,6 +8,7 @@ float_eq = "1.0.1"
 quickcheck = "1.0.3"
 quickcheck_macros = "1.0.0"
 rand = "0.8.5"
+uuid = { version = "1.11.0", features = ["v7"] }
 wasmtime = "26.0.1"
 wasmtime-wasi = "26.0.1"
 wit-bindgen = "0.34.0"

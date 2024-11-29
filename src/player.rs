@@ -7,8 +7,24 @@ use crate::{
     settings,
 };
 
+#[derive(PartialEq, Eq, Hash, Clone, Debug, Copy)]
+pub struct Id(pub uuid::Uuid);
+
+impl From<uuid::Uuid> for Id {
+    fn from(value: uuid::Uuid) -> Self {
+        Self(value)
+    }
+}
+
+impl fmt::Display for Id {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Meta {
+    pub id: Id,
     pub name: String,
     pub color: Color,
     pub _version: String,
@@ -123,23 +139,7 @@ pub trait Impl {
 
 pub type ReadableFromImpl<T> = Arc<RwLock<T>>;
 
-#[derive(PartialEq, Eq, Hash, Clone, Debug, Copy)]
-pub struct Id(pub u8);
-
-impl From<u8> for Id {
-    fn from(value: u8) -> Self {
-        Self(value)
-    }
-}
-
-impl fmt::Display for Id {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
 pub struct State {
-    pub id: Id,
     pub hp: ReadableFromImpl<f32>,
     pub meta: Meta,
     pub pos: ReadableFromImpl<Point>,
@@ -150,11 +150,10 @@ pub struct State {
 }
 
 impl State {
-    pub fn new(meta: Meta, id: u8) -> Self {
+    pub fn new(meta: Meta) -> Self {
         Self {
-            id: id.into(),
-            hp: Arc::new(RwLock::new(settings::INITIAL_HP)),
             meta,
+            hp: Arc::new(RwLock::new(settings::INITIAL_HP)),
             pos: Arc::new(RwLock::new(Point::zero())),
             heading: Arc::new(RwLock::new(0.0)),
             head_heading: Arc::new(RwLock::new(0.0)),
@@ -177,6 +176,10 @@ impl State {
     // in this case I'm fine with hiding the `RwLock` usage where possible. It
     // might even come in handy if I find a better way to model and share the
     // state with Lua.
+
+    pub fn id(&self) -> &Id {
+        &self.meta.id
+    }
 
     pub fn heading(&self) -> f32 {
         *self.heading.read().unwrap()

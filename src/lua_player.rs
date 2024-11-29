@@ -18,7 +18,29 @@ impl<'a> IntoLua<'a> for Point {
 
 impl<'a> IntoLua<'a> for Id {
     fn into_lua(self, lua: &'a Lua) -> LuaResult<LuaValue<'a>> {
-        self.0.into_lua(lua)
+        self.0.to_string().into_lua(lua)
+    }
+}
+
+impl<'a> FromLua<'a> for Id {
+    fn from_lua(value: LuaValue<'a>, lua: &'a Lua) -> LuaResult<Self> {
+        match value {
+            LuaValue::String(ref s) => {
+                let s = s.to_str()?;
+                let uuid =
+                    uuid::Uuid::parse_str(s).map_err(|_| mlua::Error::FromLuaConversionError {
+                        from: value.type_name(),
+                        to: "Id",
+                        message: Some(format!("expected valid UUID string, got {s}")),
+                    })?;
+                Ok(Id(uuid))
+            }
+            _ => Err(mlua::Error::FromLuaConversionError {
+                from: value.type_name(),
+                to: "Id",
+                message: Some("expected UUID".to_string()),
+            }),
+        }
     }
 }
 
@@ -30,6 +52,7 @@ impl<'a> FromLua<'a> for MovementDirection {
                 "backward" => Ok(MovementDirection::Backward),
                 "left" => Ok(MovementDirection::Left),
                 "right" => Ok(MovementDirection::Right),
+                // FIXME: implement and test this error case
                 other => todo!("invalid direction: {other}"),
             },
             _ => Err(mlua::Error::FromLuaConversionError {
@@ -240,6 +263,7 @@ impl Meta {
         let meta_file = player_dir.join("meta.lua");
         let code = std::fs::read_to_string(meta_file)?;
         lua.load(&code).exec()?;
+        let id = lua.globals().get("id")?;
         let name = lua.globals().get("name")?;
         let color = lua.globals().get("color")?;
         let version = lua.globals().get("version")?;
@@ -249,6 +273,7 @@ impl Meta {
         };
         Ok((
             Meta {
+                id,
                 name,
                 color,
                 _version: version,
