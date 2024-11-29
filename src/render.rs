@@ -172,7 +172,7 @@ impl<'a> GameRenderer<'a> {
                         .push(PlayerData::new(id, meta.color, &pos));
                 }
             }
-            GameEvent::RoundOver(_) => {}
+            GameEvent::RoundEnded(_) => {}
             GameEvent::PlayerPositionUpdated(id, delta) => {
                 let player = self.state.player(&id);
                 player.x = player.x + delta.value.x;

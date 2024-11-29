@@ -51,6 +51,9 @@ impl Player {
 pub enum Event {
     Tick(u32),
     RoundStarted(u32),
+    RoundEnded(Option<String>),
+    RoundDrawn,
+    RoundWon,
     EnemySeen(String, Point),
     Death,
     EnemyDied(String),

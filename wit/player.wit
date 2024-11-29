@@ -27,6 +27,9 @@ interface handlers {
     }
 
     on-round-started: func(n: u32) -> list<command>;
+    on-round-ended: func(opt-winner: option<string>);
+    on-round-won: func();
+    on-round-drawn: func();
     on-tick: func(n: u32) -> list<command>;
     on-enemy-seen: func(enemy: string, p: point) -> list<command>;
     on-hit-by: func(enemy: string) -> list<command>;

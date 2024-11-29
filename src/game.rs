@@ -212,7 +212,7 @@ impl Delta {
 pub enum GameEvent {
     Tick(u32),
     RoundStarted(u32, Vec<(player::Id, Point, player::Meta)>),
-    RoundOver(Option<player::Id>),
+    RoundEnded(Option<player::Id>),
     PlayerHeadTurned(player::Id, f32),
     PlayerArmsTurned(player::Id, f32),
     Hit(AttackId, player::Id, player::Id, Point),
@@ -329,7 +329,15 @@ fn game_events_to_player_events(
             GameEvent::RoundStarted(round, _) => {
                 player_events.push(player::Event::RoundStarted(*round));
             }
-            GameEvent::RoundOver(_) => {}
+            GameEvent::RoundEnded(opt_id) => match opt_id {
+                Some(id) => {
+                    if *id == player_state.id {
+                        player_events.push(player::Event::RoundWon);
+                    }
+                    player_events.push(player::Event::RoundEnded(opt_id.map(|id| id.to_string())));
+                }
+                None => player_events.push(player::Event::RoundDrawn),
+            },
             GameEvent::PlayerTurned(_, _) => {}
             GameEvent::PlayerPositionUpdated(_, _) => {}
             GameEvent::PlayerHeadTurned(_, _) => {}
@@ -520,7 +528,7 @@ fn advance_game_state(game: &mut Game, events: &[GameEvent]) {
                 }
             }
             GameEvent::RoundStarted(_, _) => {}
-            GameEvent::RoundOver(winner) => {
+            GameEvent::RoundEnded(winner) => {
                 game.round_state = match winner {
                     Some(winner) => RoundState::Won(*winner),
                     None => RoundState::Draw,
@@ -615,11 +623,11 @@ fn check_for_round_end(game: &Game, event_manager: &mut EventManager) {
     match nplayers {
         0 => {
             println!("none");
-            event_manager.record(GameEvent::RoundOver(None));
+            event_manager.record(GameEvent::RoundEnded(None));
         }
         1 => {
             println!("some");
-            event_manager.record(GameEvent::RoundOver(Some(
+            event_manager.record(GameEvent::RoundEnded(Some(
                 game.living_players().nth(0).unwrap().id.clone(),
             )));
         }

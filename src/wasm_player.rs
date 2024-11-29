@@ -229,6 +229,24 @@ impl player::Impl for WasmImpl {
                     .call_on_enemy_died(&mut self.store, &enemy_id.to_string())?;
                 Ok(player::Commands::from(commands))
             }
+            player::Event::RoundEnded(opt_winner) => {
+                self.bindings
+                    .luarena_player_handlers()
+                    .call_on_round_ended(&mut self.store, opt_winner.as_deref())?;
+                Ok(player::Commands::none())
+            }
+            player::Event::RoundWon => {
+                self.bindings
+                    .luarena_player_handlers()
+                    .call_on_round_won(&mut self.store)?;
+                Ok(player::Commands::none())
+            }
+            player::Event::RoundDrawn => {
+                self.bindings
+                    .luarena_player_handlers()
+                    .call_on_round_drawn(&mut self.store)?;
+                Ok(player::Commands::none())
+            }
         }
     }
 }

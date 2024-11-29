@@ -17,6 +17,21 @@ function m.on_round_started(n)
    locked = false
 end
 
+function m.on_round_ended(winner)
+   me.log("round has ended")
+   if winner then
+      me.log("congrats " .. winner)
+   end
+end
+
+function m.on_round_drawn()
+   me.log("bahhhh, boring draw")
+end
+
+function m.on_round_won()
+   me.log("wooot, I won? awesome!")
+end
+
 function m.on_death()
    me.log("I'm dead")
 end

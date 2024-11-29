@@ -214,6 +214,9 @@ impl Impl for LuaImpl {
         match event {
             Event::Tick(n) => self.call_event_handler("on_tick", *n),
             Event::RoundStarted(n) => self.call_event_handler("on_round_started", *n),
+            Event::RoundEnded(opt_winner) => {
+                self.call_event_handler("on_round_started", opt_winner.clone())
+            }
             Event::EnemySeen(name, pos) => {
                 self.call_event_handler("on_enemy_seen", (name.to_string(), pos.clone()))
             }
@@ -225,6 +228,8 @@ impl Impl for LuaImpl {
             Event::EnemyDied(enemy_id) => {
                 self.call_event_handler("on_enemy_death", enemy_id.to_string())
             }
+            Event::RoundDrawn => self.call_event_handler("on_round_drawn", ()),
+            Event::RoundWon => self.call_event_handler("on_round_won", ()),
         }
     }
 }
