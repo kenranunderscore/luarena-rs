@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::mpsc::Receiver;
 
 use raylib::prelude::*;
@@ -14,7 +15,6 @@ const VISION_COLOR: Color = Color {
 };
 
 struct PlayerData {
-    id: player::Id,
     color: Color,
     x: f32,
     y: f32,
@@ -24,9 +24,8 @@ struct PlayerData {
 }
 
 impl PlayerData {
-    fn new(id: player::Id, color: crate::color::Color, p: &Point) -> Self {
+    fn new(color: crate::color::Color, p: &Point) -> Self {
         Self {
-            id,
             color: to_raylib_color(&color),
             x: p.x,
             y: p.y,
@@ -38,18 +37,18 @@ impl PlayerData {
 }
 
 struct GameData {
-    players: Vec<PlayerData>,
+    players: HashMap<player::Meta, PlayerData>,
 }
 
 impl GameData {
     fn new() -> Self {
         Self {
-            players: Vec::new(),
+            players: HashMap::new(),
         }
     }
 
-    fn player(&mut self, id: &player::Id) -> &mut PlayerData {
-        self.players.iter_mut().find(|p| p.id == *id).unwrap()
+    fn player(&mut self, meta: &player::Meta) -> &mut PlayerData {
+        self.players.get_mut(meta).unwrap()
     }
 }
 
@@ -145,7 +144,7 @@ fn attack(d: &mut RaylibDrawHandle, attack: &Point) {
 }
 
 fn draw_game(d: &mut RaylibDrawHandle, game_data: &GameData) {
-    players(d, game_data.players.iter());
+    players(d, game_data.players.values());
 }
 
 pub struct GameRenderer<'a> {
@@ -165,39 +164,37 @@ impl<'a> GameRenderer<'a> {
         match event {
             GameEvent::Tick(_) => {}
             GameEvent::RoundStarted(_, players) => {
-                self.state.players = vec![];
-                for (id, pos, meta) in players {
+                self.state.players = HashMap::new();
+                for (meta, pos) in players.iter() {
                     self.state
                         .players
-                        .push(PlayerData::new(id, meta.color, &pos));
+                        .insert(meta.clone(), PlayerData::new(meta.color.clone(), &pos));
                 }
             }
             GameEvent::RoundEnded(_) => {}
-            GameEvent::PlayerPositionUpdated(id, delta) => {
-                let player = self.state.player(&id);
+            GameEvent::PlayerPositionUpdated(meta, delta) => {
+                let player = self.state.player(&meta);
                 player.x = player.x + delta.value.x;
                 player.y = player.y + delta.value.y;
             }
-            GameEvent::PlayerTurned(id, delta) => {
-                let player = self.state.player(&id);
+            GameEvent::PlayerTurned(meta, delta) => {
+                let player = self.state.player(&meta);
                 player.heading = player.heading + delta;
             }
-            GameEvent::PlayerHeadTurned(id, delta) => {
-                let player = self.state.player(&id);
+            GameEvent::PlayerHeadTurned(meta, delta) => {
+                let player = self.state.player(&meta);
                 player.head_heading = player.head_heading + delta;
             }
-            GameEvent::PlayerArmsTurned(id, delta) => {
-                let player = self.state.player(&id);
+            GameEvent::PlayerArmsTurned(meta, delta) => {
+                let player = self.state.player(&meta);
                 player.arms_heading = player.arms_heading + delta;
             }
             GameEvent::Hit(_, _, _, _) => {}
             GameEvent::AttackAdvanced(_, pos) => attack(d, &pos),
             GameEvent::AttackMissed(_) => {}
             GameEvent::AttackCreated(_, a) => attack(d, &a.pos),
-            GameEvent::PlayerDied(id) => {
-                if let Some(index) = self.state.players.iter().position(|p| p.id == id) {
-                    self.state.players.remove(index);
-                }
+            GameEvent::PlayerDied(meta) => {
+                self.state.players.remove(&meta);
             }
         }
     }

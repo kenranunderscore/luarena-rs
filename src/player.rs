@@ -22,7 +22,7 @@ impl fmt::Display for Id {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Meta {
     pub id: Id,
     pub name: String,
@@ -67,14 +67,14 @@ impl Player {
 pub enum Event {
     Tick(u32),
     RoundStarted(u32),
-    RoundEnded(Option<String>),
+    RoundEnded(Option<Meta>),
     RoundDrawn,
     RoundWon,
     EnemySeen(String, Point),
     Death,
     EnemyDied(String),
-    HitBy(Id),
-    AttackHit(Id, Point),
+    HitBy(Meta),
+    AttackHit(Meta, Point),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -141,7 +141,6 @@ pub type ReadableFromImpl<T> = Arc<RwLock<T>>;
 
 pub struct State {
     pub hp: ReadableFromImpl<f32>,
-    pub meta: Meta,
     pub pos: ReadableFromImpl<Point>,
     pub heading: ReadableFromImpl<f32>,
     pub head_heading: ReadableFromImpl<f32>,
@@ -150,9 +149,8 @@ pub struct State {
 }
 
 impl State {
-    pub fn new(meta: Meta) -> Self {
+    pub fn new() -> Self {
         Self {
-            meta,
             hp: Arc::new(RwLock::new(settings::INITIAL_HP)),
             pos: Arc::new(RwLock::new(Point::zero())),
             heading: Arc::new(RwLock::new(0.0)),
@@ -176,10 +174,6 @@ impl State {
     // in this case I'm fine with hiding the `RwLock` usage where possible. It
     // might even come in handy if I find a better way to model and share the
     // state with Lua.
-
-    pub fn id(&self) -> &Id {
-        &self.meta.id
-    }
 
     pub fn heading(&self) -> f32 {
         *self.heading.read().unwrap()

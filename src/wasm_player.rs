@@ -211,13 +211,13 @@ impl player::Impl for WasmImpl {
                     .bindings
                     .luarena_player_handlers()
                     // FIXME: enemy
-                    .call_on_hit_by(&mut self.store, &enemy.to_string())?;
+                    .call_on_hit_by(&mut self.store, &enemy.name.to_string())?;
                 Ok(player::Commands::from(commands))
             }
             player::Event::AttackHit(enemy, p) => {
                 let commands = self.bindings.luarena_player_handlers().call_on_attack_hit(
                     &mut self.store,
-                    &enemy.to_string(),
+                    &enemy.name.to_string(),
                     p.into(),
                 )?;
                 Ok(player::Commands::from(commands))
@@ -232,7 +232,10 @@ impl player::Impl for WasmImpl {
             player::Event::RoundEnded(opt_winner) => {
                 self.bindings
                     .luarena_player_handlers()
-                    .call_on_round_ended(&mut self.store, opt_winner.as_deref())?;
+                    .call_on_round_ended(
+                        &mut self.store,
+                        opt_winner.as_ref().map(|m| m.name.as_str()),
+                    )?;
                 Ok(player::Commands::none())
             }
             player::Event::RoundWon => {

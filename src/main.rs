@@ -1,10 +1,6 @@
 use std::{
     path::Path,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        mpsc::{self, Sender},
-        Arc,
-    },
+    sync::{atomic::AtomicBool, mpsc, Arc},
     time::Duration,
 };
 

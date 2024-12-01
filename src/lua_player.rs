@@ -23,7 +23,7 @@ impl<'a> IntoLua<'a> for Id {
 }
 
 impl<'a> FromLua<'a> for Id {
-    fn from_lua(value: LuaValue<'a>, lua: &'a Lua) -> LuaResult<Self> {
+    fn from_lua(value: LuaValue<'a>, _lua: &'a Lua) -> LuaResult<Self> {
         match value {
             LuaValue::String(ref s) => {
                 let s = s.to_str()?;
@@ -205,12 +205,13 @@ impl LuaImpl {
 
     fn register_lua_library(
         &self,
+        meta: &Meta,
         player_state: &State,
         intent: &ReadableFromImpl<Intent>,
     ) -> LuaResult<()> {
         let lua = &self.lua;
         let mut me = lua.create_table()?;
-        register_player_state_accessors(player_state, &mut me, &lua, intent)?;
+        register_player_state_accessors(meta, player_state, &mut me, &lua, intent)?;
         register_player_commands(&mut me, lua)?;
         lua.globals().set("me", me)?;
         register_utils(lua)?;
@@ -221,13 +222,14 @@ impl LuaImpl {
     pub fn load(
         player_dir: &Path,
         entrypoint: &Path,
+        meta: &Meta,
         player_state: &State,
         intent: &ReadableFromImpl<Intent>,
     ) -> LuaResult<Self> {
         let file = player_dir.join(entrypoint);
         let code = std::fs::read_to_string(file)?;
         let res = Self::new(&code)?;
-        res.register_lua_library(player_state, intent)?;
+        res.register_lua_library(meta, player_state, intent)?;
         Ok(res)
     }
 }
@@ -237,19 +239,20 @@ impl Impl for LuaImpl {
         match event {
             Event::Tick(n) => self.call_event_handler("on_tick", *n),
             Event::RoundStarted(n) => self.call_event_handler("on_round_started", *n),
-            Event::RoundEnded(opt_winner) => {
-                self.call_event_handler("on_round_started", opt_winner.clone())
-            }
+            Event::RoundEnded(opt_winner) => self.call_event_handler(
+                "on_round_started",
+                opt_winner.as_ref().map(|meta| meta.name.clone()),
+            ),
             Event::EnemySeen(name, pos) => {
                 self.call_event_handler("on_enemy_seen", (name.to_string(), pos.clone()))
             }
-            Event::HitBy(id) => self.call_event_handler("on_hit_by", *id),
-            Event::AttackHit(id, pos) => {
-                self.call_event_handler("on_attack_hit", (*id, pos.clone()))
+            Event::HitBy(meta) => self.call_event_handler("on_hit_by", meta.name.clone()),
+            Event::AttackHit(meta, pos) => {
+                self.call_event_handler("on_attack_hit", (meta.name.clone(), pos.clone()))
             }
             Event::Death => self.call_event_handler("on_death", ()),
-            Event::EnemyDied(enemy_id) => {
-                self.call_event_handler("on_enemy_death", enemy_id.to_string())
+            Event::EnemyDied(deceased_meta) => {
+                self.call_event_handler("on_enemy_death", deceased_meta.to_string())
             }
             Event::RoundDrawn => self.call_event_handler("on_round_drawn", ()),
             Event::RoundWon => self.call_event_handler("on_round_won", ()),
@@ -292,6 +295,7 @@ impl From<mlua::Error> for EventError {
 }
 
 fn register_player_state_accessors(
+    meta: &Meta,
     player: &State,
     t: &mut LuaTable,
     lua: &Lua,
@@ -359,7 +363,7 @@ fn register_player_state_accessors(
         lua.create_function(move |_, _: ()| Ok(r.read().unwrap().turn_arms_angle))?,
     )?;
 
-    let name = player.meta.name.clone();
+    let name = meta.name.clone();
     t.set(
         "log",
         lua.create_function(move |_, msg: LuaString| {
