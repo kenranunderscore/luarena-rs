@@ -1,8 +1,5 @@
 use core::fmt;
-use std::{
-    path::Path,
-    sync::{Arc, RwLock},
-};
+use std::path::Path;
 
 use crate::{
     color::Color,
@@ -104,18 +101,43 @@ impl Default for Intent {
 
 pub struct Player {
     pub implementation: Box<dyn Impl>,
-    pub intent: ReadableFromImpl<Intent>,
+    pub intent: Intent,
 }
 
-impl Player {
-    pub fn intent(&self) -> std::sync::RwLockReadGuard<Intent> {
-        self.intent.read().unwrap()
+#[derive(Debug)]
+pub struct CurrentPlayerState {
+    pub x: f32,
+    pub y: f32,
+    pub hp: f32,
+    pub heading: f32,
+    pub head_heading: f32,
+    pub arms_heading: f32,
+    pub attack_cooldown: u8,
+    pub turn_remaining: f32,
+    pub head_turn_remaining: f32,
+    pub arms_turn_remaining: f32,
+}
+
+impl CurrentPlayerState {
+    pub fn from_state(state: &State, intent: &Intent) -> Self {
+        Self {
+            x: state.pos.x,
+            y: state.pos.y,
+            hp: state.hp,
+            heading: state.heading,
+            head_heading: state.head_heading,
+            arms_heading: state.arms_heading,
+            attack_cooldown: state.attack_cooldown,
+            turn_remaining: intent.turn_angle,
+            head_turn_remaining: intent.turn_head_angle,
+            arms_turn_remaining: intent.turn_arms_angle,
+        }
     }
 }
 
 #[derive(Debug)]
 pub enum Event {
-    Tick(u32),
+    Tick(u32, CurrentPlayerState),
     RoundStarted(u32),
     RoundEnded(Option<Meta>),
     RoundDrawn,
@@ -187,94 +209,46 @@ pub trait Impl {
     fn on_event(&mut self, event: &Event) -> Result<Commands, EventError>;
 }
 
-pub type ReadableFromImpl<T> = Arc<RwLock<T>>;
-
 pub struct State {
-    pub hp: ReadableFromImpl<f32>,
-    pub pos: ReadableFromImpl<Point>,
-    pub heading: ReadableFromImpl<f32>,
-    pub head_heading: ReadableFromImpl<f32>,
-    pub arms_heading: ReadableFromImpl<f32>,
-    pub attack_cooldown: ReadableFromImpl<u8>,
+    pub hp: f32,
+    pub pos: Point,
+    pub heading: f32,
+    pub head_heading: f32,
+    pub arms_heading: f32,
+    pub attack_cooldown: u8,
 }
 
 impl State {
     pub fn new() -> Self {
         Self {
-            hp: Arc::new(RwLock::new(settings::INITIAL_HP)),
-            pos: Arc::new(RwLock::new(Point::zero())),
-            heading: Arc::new(RwLock::new(0.0)),
-            head_heading: Arc::new(RwLock::new(0.0)),
-            arms_heading: Arc::new(RwLock::new(0.0)),
-            attack_cooldown: Arc::new(RwLock::new(0)),
+            hp: (settings::INITIAL_HP),
+            pos: Point::zero(),
+            heading: 0.0,
+            head_heading: 0.0,
+            arms_heading: 0.0,
+            attack_cooldown: 0,
         }
     }
 
     // TODO: also randomize headings?
     pub fn reset(&mut self, next_pos: Point) {
-        *self.hp.write().unwrap() = settings::INITIAL_HP;
-        self.set_heading(0.0);
-        self.set_head_heading(0.0);
-        self.set_arms_heading(0.0);
-        let mut pos = self.pos.write().unwrap();
-        pos.set_to(&next_pos);
-    }
-
-    // This looks like Java, and I feel like there has to be a better way, but
-    // in this case I'm fine with hiding the `RwLock` usage where possible. It
-    // might even come in handy if I find a better way to model and share the
-    // state with Lua.
-
-    pub fn heading(&self) -> f32 {
-        *self.heading.read().unwrap()
-    }
-
-    pub fn set_heading(&mut self, heading: f32) {
-        *self.heading.write().unwrap() = heading;
-    }
-
-    pub fn head_heading(&self) -> f32 {
-        *self.head_heading.read().unwrap()
-    }
-
-    pub fn set_head_heading(&mut self, heading: f32) {
-        *self.head_heading.write().unwrap() = heading;
-    }
-
-    pub fn arms_heading(&self) -> f32 {
-        *self.arms_heading.read().unwrap()
-    }
-
-    pub fn set_arms_heading(&mut self, heading: f32) {
-        *self.arms_heading.write().unwrap() = heading;
-    }
-
-    pub fn hp(&self) -> f32 {
-        *self.hp.read().unwrap()
-    }
-
-    pub fn pos(&self) -> std::sync::RwLockReadGuard<Point> {
-        self.pos.read().unwrap()
-    }
-
-    pub fn attack_cooldown(&self) -> u8 {
-        *self.attack_cooldown.read().unwrap()
-    }
-
-    pub fn set_attack_cooldown(&mut self, cd: u8) {
-        *self.attack_cooldown.write().unwrap() = cd;
+        self.hp = settings::INITIAL_HP;
+        self.heading = 0.0;
+        self.head_heading = 0.0;
+        self.arms_heading = 0.0;
+        self.pos = next_pos;
     }
 
     pub fn effective_head_heading(&self) -> f32 {
-        math_utils::normalize_absolute_angle(self.heading() + self.head_heading())
+        math_utils::normalize_absolute_angle(self.heading + self.head_heading)
     }
 
     pub fn effective_arms_heading(&self) -> f32 {
-        math_utils::normalize_absolute_angle(self.heading() + self.arms_heading())
+        math_utils::normalize_absolute_angle(self.heading + self.arms_heading)
     }
 
     pub fn alive(&self) -> bool {
-        self.hp() > 0.0
+        self.hp > 0.0
     }
 }
 

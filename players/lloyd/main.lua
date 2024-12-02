@@ -1,6 +1,9 @@
 local m = {}
 
-function m.on_tick(tick)
+local s = nil
+
+function m.on_tick(tick, state)
+   s = state
    return { me.turn(0.01) }
 end
 
@@ -13,9 +16,9 @@ function m.on_hit_by(id)
 end
 
 function m.on_enemy_seen(name, p)
-   angle = math.atan(p.y - me.y(), p.x - me.x()) + math.pi / 2
-   a = utils.normalize_relative_angle(angle - me.heading())
-   if math.abs(a) < 0.02 and me.attack_cooldown() == 0 then
+   angle = math.atan(p.y - s.y, p.x - s.x) + math.pi / 2
+   a = utils.normalize_relative_angle(angle - s.heading)
+   if math.abs(a) < 0.02 and s.attack_cooldown == 0 then
       me.log("[lloyd] angle = " .. a)
       return { me.attack() }
    end

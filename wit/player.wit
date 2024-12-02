@@ -26,11 +26,24 @@ interface handlers {
         y: f32,
     }
 
-    on-round-started: func(n: u32) -> list<command>;
+    record player-state {
+        x: f32,
+        y: f32,
+        hp: f32,
+        heading: f32,
+        head-heading: f32,
+        arms-heading: f32,
+        attack-cooldown: u8,
+        turn-remaining: f32,
+        head-turn-remaining: f32,
+        arms-turn-remaining: f32,
+    }
+
+    on-round-started: func(round: u32) -> list<command>;
     on-round-ended: func(opt-winner: option<string>);
     on-round-won: func();
     on-round-drawn: func();
-    on-tick: func(n: u32) -> list<command>;
+    on-tick: func(tick: u32, current-state: player-state) -> list<command>;
     on-enemy-seen: func(enemy: string, p: point) -> list<command>;
     on-hit-by: func(enemy: string) -> list<command>;
     on-attack-hit: func(enemy: string, p: point) -> list<command>;
@@ -38,21 +51,7 @@ interface handlers {
     on-death: func();
 }
 
-interface me {
-    x: func() -> f32;
-    y: func() -> f32;
-    hp: func() -> f32;
-    heading: func() -> f32;
-    head-heading: func() -> f32;
-    arms-heading: func() -> f32;
-    attack-cooldown: func() -> u8;
-    turn-remaining: func() -> f32;
-    head-turn-remaining: func() -> f32;
-    arms-turn-remaining: func() -> f32;
-}
-
 world player {
     import log: func(msg: string);
-    import me;
     export handlers;
 }

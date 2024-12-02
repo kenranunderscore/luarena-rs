@@ -1,5 +1,4 @@
 use std::path::Path;
-use std::sync::Arc;
 
 use mlua::prelude::*;
 
@@ -19,6 +18,23 @@ impl<'a> IntoLua<'a> for Point {
 impl<'a> IntoLua<'a> for Id {
     fn into_lua(self, lua: &'a Lua) -> LuaResult<LuaValue<'a>> {
         self.0.to_string().into_lua(lua)
+    }
+}
+
+impl<'a> IntoLua<'a> for &CurrentPlayerState {
+    fn into_lua(self, lua: &'a Lua) -> LuaResult<LuaValue<'a>> {
+        let t = lua.create_table()?;
+        t.set("x", self.x)?;
+        t.set("y", self.y)?;
+        t.set("hp", self.hp)?;
+        t.set("heading", self.heading)?;
+        t.set("head_heading", self.head_heading)?;
+        t.set("arms_heading", self.arms_heading)?;
+        t.set("attack_cooldown", self.attack_cooldown)?;
+        t.set("turn_remaining", self.turn_remaining)?;
+        t.set("head_turn_remaining", self.head_turn_remaining)?;
+        t.set("arms_turn_remaining", self.arms_turn_remaining)?;
+        Ok(LuaValue::Table(t))
     }
 }
 
@@ -203,15 +219,18 @@ impl LuaImpl {
         Ok(res)
     }
 
-    fn register_lua_library(
-        &self,
-        meta: &Meta,
-        player_state: &State,
-        intent: &ReadableFromImpl<Intent>,
-    ) -> LuaResult<()> {
+    fn register_lua_library(&self, meta: &Meta) -> LuaResult<()> {
         let lua = &self.lua;
+        let name = meta.name.clone();
         let mut me = lua.create_table()?;
-        register_player_state_accessors(meta, player_state, &mut me, &lua, intent)?;
+        me.set(
+            "log",
+            lua.create_function(move |_, msg: LuaString| {
+                let msg = msg.to_str()?;
+                println!("[{name}] {msg}");
+                Ok(())
+            })?,
+        )?;
         register_player_commands(&mut me, lua)?;
         lua.globals().set("me", me)?;
         register_utils(lua)?;
@@ -219,16 +238,11 @@ impl LuaImpl {
     }
 
     // FIXME: what to use that's more generic than `Path`?
-    pub fn load(
-        player_dir: &Path,
-        meta: &Meta,
-        player_state: &State,
-        intent: &ReadableFromImpl<Intent>,
-    ) -> LuaResult<Self> {
+    pub fn load(player_dir: &Path, meta: &Meta) -> LuaResult<Self> {
         let file = player_dir.join("main.lua");
         let code = std::fs::read_to_string(file)?;
         let res = Self::new(&code)?;
-        res.register_lua_library(meta, player_state, intent)?;
+        res.register_lua_library(meta)?;
         Ok(res)
     }
 }
@@ -236,7 +250,7 @@ impl LuaImpl {
 impl Impl for LuaImpl {
     fn on_event(&mut self, event: &Event) -> Result<Commands, EventError> {
         match event {
-            Event::Tick(n) => self.call_event_handler("on_tick", *n),
+            Event::Tick(n, state) => self.call_event_handler("on_tick", (*n, state)),
             Event::RoundStarted(n) => self.call_event_handler("on_round_started", *n),
             Event::RoundEnded(opt_winner) => self.call_event_handler(
                 "on_round_started",
@@ -265,88 +279,6 @@ impl From<mlua::Error> for EventError {
             message: format!("{err}"),
         }
     }
-}
-
-fn register_player_state_accessors(
-    meta: &Meta,
-    player: &State,
-    t: &mut LuaTable,
-    lua: &Lua,
-    intent: &ReadableFromImpl<Intent>,
-) -> LuaResult<()> {
-    // Each accessor needs its own reference to the data, that's why we need to
-    // clone the Arcs multiple times
-    let r = Arc::clone(&player.pos);
-    t.set(
-        "x",
-        lua.create_function(move |_, _: ()| Ok(r.read().unwrap().x))?,
-    )?;
-
-    let r = Arc::clone(&player.pos);
-    t.set(
-        "y",
-        lua.create_function(move |_, _: ()| Ok(r.read().unwrap().y))?,
-    )?;
-
-    let r = Arc::clone(&player.hp);
-    t.set(
-        "hp",
-        lua.create_function(move |_, _: ()| Ok(*r.read().unwrap()))?,
-    )?;
-
-    let r = Arc::clone(&player.heading);
-    t.set(
-        "heading",
-        lua.create_function(move |_, _: ()| Ok(*r.read().unwrap()))?,
-    )?;
-
-    let r = Arc::clone(&player.head_heading);
-    t.set(
-        "head_heading",
-        lua.create_function(move |_, _: ()| Ok(*r.read().unwrap()))?,
-    )?;
-
-    let r = Arc::clone(&player.arms_heading);
-    t.set(
-        "arms_heading",
-        lua.create_function(move |_, _: ()| Ok(*r.read().unwrap()))?,
-    )?;
-
-    let r = Arc::clone(&player.attack_cooldown);
-    t.set(
-        "attack_cooldown",
-        lua.create_function(move |_, _: ()| Ok(*r.read().unwrap()))?,
-    )?;
-
-    let r = Arc::clone(&intent);
-    t.set(
-        "turn_remaining",
-        lua.create_function(move |_, _: ()| Ok(r.read().unwrap().turn_angle))?,
-    )?;
-
-    let r = Arc::clone(&intent);
-    t.set(
-        "head_turn_remaining",
-        lua.create_function(move |_, _: ()| Ok(r.read().unwrap().turn_head_angle))?,
-    )?;
-
-    let r = Arc::clone(&intent);
-    t.set(
-        "arms_turn_remaining",
-        lua.create_function(move |_, _: ()| Ok(r.read().unwrap().turn_arms_angle))?,
-    )?;
-
-    let name = meta.name.clone();
-    t.set(
-        "log",
-        lua.create_function(move |_, msg: LuaString| {
-            let msg = msg.to_str()?;
-            println!("[{name}] {msg}");
-            Ok(())
-        })?,
-    )?;
-
-    Ok(())
 }
 
 fn register_player_commands(t: &mut LuaTable, lua: &Lua) -> LuaResult<()> {
@@ -418,9 +350,9 @@ mod tests {
 
         #[test]
         fn call_on_tick() {
-            let mut player = LuaImpl::new("return { on_tick = function(n) return { { tag = \"move\", distance = 13.12, direction = \"left\" } } end }")
+            let mut player = LuaImpl::new("return { on_round_started = function(n) return { { tag = \"move\", distance = 13.12, direction = \"left\" } } end }")
                 .expect("lua player could not be created");
-            let res: Commands = player.on_event(&Event::Tick(17)).unwrap();
+            let res: Commands = player.on_event(&Event::RoundStarted(17)).unwrap();
             let cmd = res.value.first().expect("some command");
             assert_eq!(*cmd, Command::Move(MovementDirection::Left, 13.12));
         }
@@ -428,7 +360,7 @@ mod tests {
         #[test]
         fn call_on_tick_if_missing() {
             let mut player = LuaImpl::new("return {}").unwrap();
-            let res: Commands = player.on_event(&Event::Tick(17)).unwrap();
+            let res: Commands = player.on_event(&Event::RoundStarted(17)).unwrap();
             assert_eq!(res.value.len(), 0);
         }
     }

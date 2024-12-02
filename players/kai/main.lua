@@ -2,11 +2,13 @@ local m = {}
 
 local dir = 1
 local locked = false
+local my_state = nil
 
-function m.on_tick(n)
+function m.on_tick(n, state)
+   my_state = state
    if locked then
-      return { me.turn_head(-me.head_heading()) }
-   elseif me.head_turn_remaining() == 0 then
+      return { me.turn_head(-my_state.head_heading) }
+   elseif my_state.head_turn_remaining == 0 then
       dir = -dir
       return { me.turn_head(dir * math.pi) }
    end
@@ -46,10 +48,10 @@ end
 
 function m.on_enemy_seen(name, p)
    locked = true
-   angle = math.atan(p.y - me.y(), p.x - me.x()) + math.pi / 2
-   a = utils.normalize_relative_angle(angle - me.heading())
+   angle = math.atan(p.y - my_state.y, p.x - my_state.x) + math.pi / 2
+   a = utils.normalize_relative_angle(angle - my_state.heading)
    res = { me.turn(a) }
-   if me.turn_remaining() < 0.05 and math.abs(a) < 0.05 and me.attack_cooldown() == 0 then
+   if my_state.turn_remaining < 0.05 and math.abs(a) < 0.05 and my_state.attack_cooldown == 0 then
       me.log("shooting")
       table.insert(res, me.attack())
    end

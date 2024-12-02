@@ -9,13 +9,6 @@ wasmtime::component::bindgen!("player");
 struct MyState {
     ctx: wasmtime_wasi::WasiCtx,
     table: wasmtime_wasi::ResourceTable,
-    hp: player::ReadableFromImpl<f32>,
-    pos: player::ReadableFromImpl<math_utils::Point>,
-    heading: player::ReadableFromImpl<f32>,
-    head_heading: player::ReadableFromImpl<f32>,
-    arms_heading: player::ReadableFromImpl<f32>,
-    attack_cooldown: player::ReadableFromImpl<u8>,
-    intent: player::ReadableFromImpl<player::Intent>,
 }
 
 pub struct WasmImpl {
@@ -23,54 +16,8 @@ pub struct WasmImpl {
     store: wasmtime::Store<MyState>,
 }
 
-impl luarena::player::me::Host for MyState {
-    fn hp(&mut self) -> f32 {
-        *self.hp.read().unwrap()
-    }
-
-    fn x(&mut self) -> f32 {
-        self.pos.read().unwrap().x
-    }
-
-    fn y(&mut self) -> f32 {
-        self.pos.read().unwrap().y
-    }
-
-    fn heading(&mut self) -> f32 {
-        *self.heading.read().unwrap()
-    }
-
-    fn head_heading(&mut self) -> f32 {
-        *self.head_heading.read().unwrap()
-    }
-
-    fn arms_heading(&mut self) -> f32 {
-        *self.arms_heading.read().unwrap()
-    }
-
-    fn attack_cooldown(&mut self) -> u8 {
-        *self.attack_cooldown.read().unwrap()
-    }
-
-    fn turn_remaining(&mut self) -> f32 {
-        self.intent.read().unwrap().turn_angle
-    }
-
-    fn head_turn_remaining(&mut self) -> f32 {
-        self.intent.read().unwrap().turn_head_angle
-    }
-
-    fn arms_turn_remaining(&mut self) -> f32 {
-        self.intent.read().unwrap().turn_arms_angle
-    }
-}
-
 impl WasmImpl {
-    pub fn load(
-        component_file: &Path,
-        player_state: &player::State,
-        intent: &player::ReadableFromImpl<player::Intent>,
-    ) -> Result<Self, AddWasmPlayerError> {
+    pub fn load(component_file: &Path) -> Result<Self, AddWasmPlayerError> {
         let engine = wasmtime::Engine::default();
         let component = wasmtime::component::Component::from_file(&engine, component_file)?;
         let mut linker = wasmtime::component::Linker::new(&engine);
@@ -82,13 +29,6 @@ impl WasmImpl {
             MyState {
                 ctx: builder.build(),
                 table: wasmtime_wasi::ResourceTable::new(),
-                hp: player_state.hp.clone(),
-                pos: player_state.pos.clone(),
-                heading: player_state.heading.clone(),
-                head_heading: player_state.head_heading.clone(),
-                arms_heading: player_state.arms_heading.clone(),
-                attack_cooldown: player_state.attack_cooldown.clone(),
-                intent: intent.clone(),
             },
         );
         let bindings = Player::instantiate::<MyState>(&mut store, &component, &linker)?;
@@ -175,14 +115,32 @@ impl From<Vec<Command>> for player::Commands {
     }
 }
 
+impl From<&player::CurrentPlayerState> for handlers::PlayerState {
+    fn from(value: &player::CurrentPlayerState) -> Self {
+        handlers::PlayerState {
+            x: value.x,
+            y: value.y,
+            hp: value.hp,
+            heading: value.heading,
+            head_heading: value.head_heading,
+            arms_heading: value.arms_heading,
+            attack_cooldown: value.attack_cooldown,
+            turn_remaining: value.turn_remaining,
+            head_turn_remaining: value.head_turn_remaining,
+            arms_turn_remaining: value.arms_turn_remaining,
+        }
+    }
+}
+
 impl player::Impl for WasmImpl {
     fn on_event(&mut self, event: &player::Event) -> Result<player::Commands, player::EventError> {
         match event {
-            player::Event::Tick(tick) => {
-                let commands = self
-                    .bindings
-                    .luarena_player_handlers()
-                    .call_on_tick(&mut self.store, *tick)?;
+            player::Event::Tick(tick, state) => {
+                let commands = self.bindings.luarena_player_handlers().call_on_tick(
+                    &mut self.store,
+                    *tick,
+                    state.into(),
+                )?;
                 Ok(player::Commands::from(commands))
             }
             player::Event::RoundStarted(round) => {
