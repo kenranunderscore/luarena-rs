@@ -104,22 +104,14 @@ impl Game {
         Ok(())
     }
 
-    pub fn add_wasm_player(&mut self, component_file: &Path) -> Result<(), AddPlayerError> {
-        // FIXME: wasm player meta
-        let meta = player::Meta {
-            id: player::Id(uuid::Uuid::nil()),
-            name: "foo".to_string(),
-            color: Color {
-                red: 0,
-                green: 0,
-                blue: 200,
-            },
-            version: "1".to_string(),
-        };
+    pub fn add_wasm_player(&mut self, player_dir: &Path) -> Result<(), AddPlayerError> {
+        let meta = player::Meta::from_toml_file(&player_dir.join("meta.toml"))
+            .map_err(|e| AddPlayerError { message: e.0 })?;
         let player_state = player::State::new();
         let intent = Arc::new(RwLock::new(player::Intent::default()));
-        let wasm_impl = wasm_player::WasmImpl::load(component_file, &player_state, &intent)
-            .map_err(|e| AddPlayerError { message: e.message })?;
+        let wasm_impl =
+            wasm_player::WasmImpl::load(&player_dir.join("main.wasm"), &player_state, &intent)
+                .map_err(|e| AddPlayerError { message: e.message })?;
         self.impls.insert(
             meta.clone(),
             Player {

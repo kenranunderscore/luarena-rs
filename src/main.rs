@@ -52,7 +52,7 @@ fn main() {
         let mut game = Game::new();
         game.add_lua_player(Path::new("players/kai"))?;
         game.add_lua_player(Path::new("players/lloyd"))?;
-        game.add_wasm_player(Path::new("comp.wasm"))?;
+        game.add_wasm_player(Path::new("players/nya"))?;
 
         let delay = Duration::from_millis(7);
         // run_replay(Path::new("events"), game_writer, &delay, &cancel_ref).unwrap();
