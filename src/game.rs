@@ -88,16 +88,11 @@ impl Game {
 
     // FIXME: consolidate with below
     pub fn add_lua_player(&mut self, player_dir: &Path) -> Result<(), AddPlayerError> {
-        let (meta, entrypoint) = player::Meta::from_lua(player_dir)?;
+        let meta = player::Meta::from_toml_file(&player_dir.join("meta.toml"))
+            .map_err(|e| AddPlayerError { message: e.0 })?;
         let player_state = player::State::new();
         let intent = Arc::new(RwLock::new(player::Intent::default()));
-        let lua_impl = lua_player::LuaImpl::load(
-            player_dir,
-            &Path::new(&entrypoint),
-            &meta,
-            &player_state,
-            &intent,
-        )?;
+        let lua_impl = lua_player::LuaImpl::load(player_dir, &meta, &player_state, &intent)?;
         self.impls.insert(
             meta.clone(),
             Player {
@@ -119,7 +114,7 @@ impl Game {
                 green: 0,
                 blue: 200,
             },
-            _version: "1".to_string(),
+            version: "1".to_string(),
         };
         let player_state = player::State::new();
         let intent = Arc::new(RwLock::new(player::Intent::default()));

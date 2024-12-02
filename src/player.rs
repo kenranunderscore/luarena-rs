@@ -1,5 +1,8 @@
 use core::fmt;
-use std::sync::{Arc, RwLock};
+use std::{
+    path::Path,
+    sync::{Arc, RwLock},
+};
 
 use crate::{
     color::Color,
@@ -27,7 +30,54 @@ pub struct Meta {
     pub id: Id,
     pub name: String,
     pub color: Color,
-    pub _version: String,
+    pub version: String,
+}
+
+#[derive(Debug)]
+pub struct LoadMetaError(pub String);
+
+impl Meta {
+    const DEFAULT_COLOR: Color = Color {
+        red: 100,
+        green: 100,
+        blue: 100,
+    };
+
+    // FIXME: add proper error handling and refactor
+    pub fn from_toml_str(toml: &str) -> Result<Self, LoadMetaError> {
+        let table = toml
+            .parse::<toml::Table>()
+            .map_err(|_| LoadMetaError("Could not parse TOML table".to_string()))?;
+        let name = table["name"].as_str().unwrap().to_string();
+        let raw_id = table["id"].as_str().unwrap();
+        let id = uuid::Uuid::parse_str(raw_id)
+            .map_err(|_| LoadMetaError(format!("expected valid UUID, got {raw_id}")))?
+            .into();
+        let version = table
+            .get("version")
+            .map_or("1.0", |v| v.as_str().unwrap_or("1.0"))
+            .to_string();
+        let color = table.get("color").map_or(Self::DEFAULT_COLOR, |c| {
+            c.as_table()
+                .map(|color_table| Color {
+                    red: color_table["red"].as_integer().unwrap() as u8,
+                    green: color_table["green"].as_integer().unwrap() as u8,
+                    blue: color_table["blue"].as_integer().unwrap() as u8,
+                })
+                .unwrap_or(Self::DEFAULT_COLOR)
+        });
+        Ok(Self {
+            name,
+            id,
+            version,
+            color,
+        })
+    }
+
+    pub fn from_toml_file(path: &Path) -> Result<Self, LoadMetaError> {
+        let contents = std::fs::read_to_string(path).map_err(|e| LoadMetaError(e.to_string()))?;
+        Self::from_toml_str(&contents)
+    }
 }
 
 pub struct Intent {
@@ -225,5 +275,64 @@ impl State {
 
     pub fn alive(&self) -> bool {
         self.hp() > 0.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    mod meta {
+        use super::*;
+
+        #[test]
+        fn can_be_loaded_from_toml_string() {
+            let toml_str = "
+name = \"Kai\"
+id = \"00000000-0000-0000-0000-000000000000\"
+version = \"1.09c\"
+[color]
+red = 243
+green = 0
+blue = 13
+";
+            let meta = Meta::from_toml_str(toml_str).unwrap();
+            assert_eq!(meta.name, "Kai");
+            assert_eq!(
+                meta.id,
+                Id(uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap())
+            );
+            assert_eq!(meta.version, "1.09c");
+            assert_eq!(
+                meta.color,
+                Color {
+                    red: 243,
+                    green: 0,
+                    blue: 13
+                }
+            );
+        }
+
+        #[test]
+        fn version_has_default_value() {
+            // TODO: add `Version` implementing Default
+            let toml_str = "
+name = \"Kai\"
+id = \"00000000-0000-0000-0000-000000000000\"
+";
+            let meta = Meta::from_toml_str(toml_str).unwrap();
+            assert_eq!(meta.version, "1.0");
+        }
+
+        #[test]
+        fn color_has_default_value() {
+            // TODO: add `PlayerColor` implementing Default
+            let toml_str = "
+name = \"Kai\"
+id = \"00000000-0000-0000-0000-000000000000\"
+";
+            let meta = Meta::from_toml_str(toml_str).unwrap();
+            assert_eq!(meta.color, Meta::DEFAULT_COLOR);
+        }
     }
 }

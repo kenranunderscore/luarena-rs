@@ -221,12 +221,11 @@ impl LuaImpl {
     // FIXME: what to use that's more generic than `Path`?
     pub fn load(
         player_dir: &Path,
-        entrypoint: &Path,
         meta: &Meta,
         player_state: &State,
         intent: &ReadableFromImpl<Intent>,
     ) -> LuaResult<Self> {
-        let file = player_dir.join(entrypoint);
+        let file = player_dir.join("main.lua");
         let code = std::fs::read_to_string(file)?;
         let res = Self::new(&code)?;
         res.register_lua_library(meta, player_state, intent)?;
@@ -257,32 +256,6 @@ impl Impl for LuaImpl {
             Event::RoundDrawn => self.call_event_handler("on_round_drawn", ()),
             Event::RoundWon => self.call_event_handler("on_round_won", ()),
         }
-    }
-}
-
-impl Meta {
-    pub fn from_lua(player_dir: &Path) -> LuaResult<(Meta, String)> {
-        let lua = Lua::new();
-        let meta_file = player_dir.join("meta.lua");
-        let code = std::fs::read_to_string(meta_file)?;
-        lua.load(&code).exec()?;
-        let id = lua.globals().get("id")?;
-        let name = lua.globals().get("name")?;
-        let color = lua.globals().get("color")?;
-        let version = lua.globals().get("version")?;
-        let entrypoint = match lua.globals().get("entrypoint") {
-            Ok(file_name) => file_name,
-            Err(_) => String::from("main.lua"),
-        };
-        Ok((
-            Meta {
-                id,
-                name,
-                color,
-                _version: version,
-            },
-            entrypoint,
-        ))
     }
 }
 
