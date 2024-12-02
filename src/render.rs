@@ -14,8 +14,16 @@ const VISION_COLOR: Color = Color {
     a: 50,
 };
 
+const TEXT_COLOR: Color = Color {
+    r: 200,
+    g: 200,
+    b: 200,
+    a: 255,
+};
+
 struct PlayerData {
     color: Color,
+    display_name: String,
     x: f32,
     y: f32,
     heading: f32,
@@ -24,9 +32,10 @@ struct PlayerData {
 }
 
 impl PlayerData {
-    fn new(color: crate::color::Color, p: &Point) -> Self {
+    fn new(meta: &player::Meta, p: &Point) -> Self {
         Self {
-            color: to_raylib_color(&color),
+            color: to_raylib_color(&meta.color),
+            display_name: format!("{} {}", meta.name, meta.version),
             x: p.x,
             y: p.y,
             heading: 0.0,
@@ -58,14 +67,14 @@ fn draw_line_in_direction(
     y: i32,
     angle: f32,
     length: f32,
-    color: raylib::color::Color,
+    color: &raylib::color::Color,
 ) {
     let dx = angle.sin() * length;
     let dy = angle.cos() * length;
     d.draw_line(x, y, x + dx.round() as i32, y - dy.round() as i32, color);
 }
 
-fn player_vision(d: &mut RaylibDrawHandle, x: i32, y: i32, heading: f32) {
+fn draw_player_vision(d: &mut RaylibDrawHandle, x: i32, y: i32, heading: f32) {
     let vision_delta = ANGLE_OF_VISION / 2.0;
     let side_len = (WIDTH + HEIGHT) as f32; // don't know whether this is smart or dumb...
     let origin = Vector2::new(x as f32, y as f32);
@@ -81,11 +90,11 @@ fn player_vision(d: &mut RaylibDrawHandle, x: i32, y: i32, heading: f32) {
     );
 }
 
-fn player_arms(d: &mut RaylibDrawHandle, x: i32, y: i32, heading: f32) {
-    draw_line_in_direction(d, x, y, heading, 1.5 * PLAYER_RADIUS as f32, Color::YELLOW);
+fn draw_player_arms(d: &mut RaylibDrawHandle, x: i32, y: i32, heading: f32) {
+    draw_line_in_direction(d, x, y, heading, 1.5 * PLAYER_RADIUS as f32, &Color::YELLOW);
 }
 
-fn heading(d: &mut RaylibDrawHandle, x: i32, y: i32, heading: f32, color: Color) {
+fn draw_heading(d: &mut RaylibDrawHandle, x: i32, y: i32, heading: f32, color: &Color) {
     draw_line_in_direction(d, x, y, heading, 1.6 * PLAYER_RADIUS as f32, color);
     draw_line_in_direction(
         d,
@@ -122,18 +131,32 @@ fn to_raylib_color(color: &crate::color::Color) -> Color {
     }
 }
 
-fn players<'a>(d: &mut RaylibDrawHandle, players: impl Iterator<Item = &'a PlayerData>) {
-    for player in players {
-        let x = player.x.round() as i32;
-        let y = player.y.round() as i32;
-        player_vision(d, x, y, player.heading + player.head_heading);
-        player_arms(d, x, y, player.heading + player.arms_heading);
-        heading(d, x, y, player.heading, player.color);
-        d.draw_circle(x, y, PLAYER_RADIUS as f32, player.color);
-    }
+fn draw_player_name<'a>(d: &mut RaylibDrawHandle, name: &str, x: i32, y: i32, font_size: i32) {
+    let w = d.measure_text(name, font_size);
+    d.draw_text(
+        name,
+        x - w / 2,
+        y + PLAYER_RADIUS as i32 + font_size,
+        font_size,
+        TEXT_COLOR,
+    );
 }
 
-fn attack(d: &mut RaylibDrawHandle, attack: &Point) {
+fn draw_player_body<'a>(d: &mut RaylibDrawHandle, x: i32, y: i32, color: &Color) {
+    d.draw_circle(x, y, PLAYER_RADIUS as f32, color);
+}
+
+fn draw_player<'a>(d: &mut RaylibDrawHandle, player: &'a PlayerData) {
+    let x = player.x.round() as i32;
+    let y = player.y.round() as i32;
+    draw_player_vision(d, x, y, player.heading + player.head_heading);
+    draw_player_arms(d, x, y, player.heading + player.arms_heading);
+    draw_heading(d, x, y, player.heading, &player.color);
+    draw_player_body(d, x, y, &player.color);
+    draw_player_name(d, &player.display_name, x, y, 18);
+}
+
+fn draw_attack(d: &mut RaylibDrawHandle, attack: &Point) {
     let attack_color = Color::GOLDENROD;
     d.draw_circle(
         attack.x.round() as i32,
@@ -141,10 +164,6 @@ fn attack(d: &mut RaylibDrawHandle, attack: &Point) {
         ATTACK_RADIUS,
         attack_color,
     );
-}
-
-fn draw_game(d: &mut RaylibDrawHandle, game_data: &GameData) {
-    players(d, game_data.players.values());
 }
 
 pub struct GameRenderer<'a> {
@@ -168,7 +187,7 @@ impl<'a> GameRenderer<'a> {
                 for (meta, pos) in players.iter() {
                     self.state
                         .players
-                        .insert(meta.clone(), PlayerData::new(meta.color.clone(), &pos));
+                        .insert(meta.clone(), PlayerData::new(&meta, &pos));
                 }
             }
             GameEvent::RoundEnded(_) => {}
@@ -190,9 +209,9 @@ impl<'a> GameRenderer<'a> {
                 player.arms_heading = player.arms_heading + delta;
             }
             GameEvent::Hit(_, _, _, _) => {}
-            GameEvent::AttackAdvanced(_, pos) => attack(d, &pos),
+            GameEvent::AttackAdvanced(_, pos) => draw_attack(d, &pos),
             GameEvent::AttackMissed(_) => {}
-            GameEvent::AttackCreated(_, a) => attack(d, &a.pos),
+            GameEvent::AttackCreated(_, a) => draw_attack(d, &a.pos),
             GameEvent::PlayerDied(meta) => {
                 self.state.players.remove(&meta);
             }
@@ -209,10 +228,20 @@ impl<'a> GameRenderer<'a> {
 
                 d.draw_fps(5, 5);
                 d.clear_background(raylib::prelude::Color::BLACK);
-                draw_game(&mut d, &self.state);
+                self.draw(&mut d);
             }
             // Sender is gone, which is expected if the game has ended
             Err(_) => {}
         }
+    }
+
+    fn draw_players(&self, d: &mut RaylibDrawHandle) {
+        for player in self.state.players.values() {
+            draw_player(d, player);
+        }
+    }
+
+    fn draw(&self, d: &mut RaylibDrawHandle) {
+        self.draw_players(d);
     }
 }

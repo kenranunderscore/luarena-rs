@@ -6,7 +6,6 @@ use std::sync::{mpsc, Arc, RwLock};
 
 use rand::Rng;
 
-use crate::color::Color;
 use crate::math_utils::{self, Point, Sector, HALF_PI};
 use crate::player::{self, MovementDirection, Player};
 use crate::{lua_player, settings::*, wasm_player};
