@@ -54,21 +54,17 @@ pub struct Game {
     attack_ids: AttackIds,
 }
 
-pub struct AddPlayerError {
-    pub message: String,
-}
+pub struct AddPlayerError(pub String);
 
 impl fmt::Display for AddPlayerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.message)
+        write!(f, "{}", self.0)
     }
 }
 
 impl From<mlua::Error> for AddPlayerError {
     fn from(err: mlua::Error) -> Self {
-        Self {
-            message: format!("{err}"),
-        }
+        Self(format!("{err}"))
     }
 }
 
@@ -85,17 +81,19 @@ impl Game {
         }
     }
 
-    // FIXME: consolidate with below
-    pub fn add_lua_player(&mut self, player_dir: &Path) -> Result<(), AddPlayerError> {
+    fn add_player<F>(&mut self, player_dir: &Path, load_impl: F) -> Result<(), AddPlayerError>
+    where
+        F: Fn(&player::Meta) -> Result<Box<dyn player::Impl>, AddPlayerError>,
+    {
         let meta = player::Meta::from_toml_file(&player_dir.join("meta.toml"))
-            .map_err(|e| AddPlayerError { message: e.0 })?;
+            .map_err(|e| AddPlayerError(e.0))?;
         let player_state = player::State::new();
         let intent = player::Intent::default();
-        let lua_impl = lua_player::LuaImpl::load(player_dir, &meta)?;
+        let implementation = load_impl(&meta)?;
         self.impls.insert(
             meta.clone(),
             Player {
-                implementation: Box::new(lua_impl),
+                implementation,
                 intent,
             },
         );
@@ -103,22 +101,20 @@ impl Game {
         Ok(())
     }
 
+    pub fn add_lua_player(&mut self, player_dir: &Path) -> Result<(), AddPlayerError> {
+        self.add_player(player_dir, |meta| {
+            lua_player::LuaImpl::load(player_dir, &meta)
+                .map_err(|e| AddPlayerError(e.to_string()))
+                .map(|player_impl| Box::new(player_impl) as Box<dyn player::Impl>)
+        })
+    }
+
     pub fn add_wasm_player(&mut self, player_dir: &Path) -> Result<(), AddPlayerError> {
-        let meta = player::Meta::from_toml_file(&player_dir.join("meta.toml"))
-            .map_err(|e| AddPlayerError { message: e.0 })?;
-        let player_state = player::State::new();
-        let intent = player::Intent::default();
-        let wasm_impl = wasm_player::WasmImpl::load(&player_dir.join("main.wasm"))
-            .map_err(|e| AddPlayerError { message: e.message })?;
-        self.impls.insert(
-            meta.clone(),
-            Player {
-                implementation: Box::new(wasm_impl),
-                intent,
-            },
-        );
-        self.players.insert(meta, player_state);
-        Ok(())
+        self.add_player(player_dir, |_meta| {
+            wasm_player::WasmImpl::load(&player_dir.join("main.wasm"))
+                .map_err(|e| AddPlayerError(e.message))
+                .map(|player_impl| Box::new(player_impl) as Box<dyn player::Impl>)
+        })
     }
 
     pub fn init_round(&mut self, round: u32, event_manager: &mut EventManager) {
