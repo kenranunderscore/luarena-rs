@@ -110,8 +110,8 @@ impl Game {
     }
 
     pub fn add_wasm_player(&mut self, player_dir: &Path) -> Result<(), AddPlayerError> {
-        self.add_player(player_dir, |_meta| {
-            wasm_player::WasmImpl::load(&player_dir.join("main.wasm"))
+        self.add_player(player_dir, |meta| {
+            wasm_player::WasmImpl::load(&player_dir.join("main.wasm"), &meta)
                 .map_err(|e| AddPlayerError(e.message))
                 .map(|player_impl| Box::new(player_impl) as Box<dyn player::Impl>)
         })
