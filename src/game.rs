@@ -389,7 +389,10 @@ fn dispatch_player_events(
 }
 
 fn create_attacks(game: &mut Game, event_manager: &mut EventManager) {
-    for (meta, player_state) in game.players.iter_mut() {
+    for (meta, player_state) in game.players.iter() {
+        if !player_state.alive() {
+            continue;
+        }
         let player = game.impls.get(meta).unwrap();
         let will_attack = player.intent.attack && player_state.attack_cooldown == 0;
         if will_attack {
