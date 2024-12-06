@@ -41,7 +41,7 @@ impl Meta {
     };
 
     // FIXME: add proper error handling and refactor
-    pub fn from_toml_str(toml: &str) -> Result<Self, LoadMetaError> {
+    fn from_toml_str(toml: &str) -> Result<Self, LoadMetaError> {
         let table = toml
             .parse::<toml::Table>()
             .map_err(|_| LoadMetaError("Could not parse TOML table".to_string()))?;
@@ -250,6 +250,10 @@ impl State {
     pub fn alive(&self) -> bool {
         self.hp > 0.0
     }
+}
+
+pub fn log_msg(player_name: &str, msg: &str) {
+    println!("[{}]: {msg}", player_name);
 }
 
 #[cfg(test)]

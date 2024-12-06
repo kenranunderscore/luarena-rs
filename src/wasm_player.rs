@@ -96,7 +96,7 @@ impl From<wasmtime::Error> for AddWasmPlayerError {
 
 impl PlayerImports for MyState {
     fn log(&mut self, msg: String) {
-        println!("[{}]: {msg}", self.name);
+        player::log_msg(&self.name, &msg);
     }
 }
 

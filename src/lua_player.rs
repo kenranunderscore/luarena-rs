@@ -227,7 +227,7 @@ impl LuaImpl {
             "log",
             lua.create_function(move |_, msg: LuaString| {
                 let msg = msg.to_str()?;
-                println!("[{name}] {msg}");
+                log_msg(&name, msg);
                 Ok(())
             })?,
         )?;
