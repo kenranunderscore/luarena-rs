@@ -8,7 +8,7 @@ use rand::Rng;
 
 use crate::math_utils::{self, Point, Sector, HALF_PI};
 use crate::player::{self, MovementDirection, Player};
-use crate::{lua_player, settings::*, wasm_player};
+use crate::settings::*;
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub struct AttackId(usize);
@@ -103,7 +103,7 @@ impl Game {
 
     pub fn add_lua_player(&mut self, player_dir: &Path) -> Result<(), AddPlayerError> {
         self.add_player(player_dir, |meta| {
-            lua_player::LuaImpl::load(player_dir, &meta)
+            player::lua::LuaImpl::load(player_dir, &meta)
                 .map_err(|e| AddPlayerError(e.to_string()))
                 .map(|player_impl| Box::new(player_impl) as Box<dyn player::Impl>)
         })
@@ -111,7 +111,7 @@ impl Game {
 
     pub fn add_wasm_player(&mut self, player_dir: &Path) -> Result<(), AddPlayerError> {
         self.add_player(player_dir, |meta| {
-            wasm_player::WasmImpl::load(&player_dir.join("main.wasm"), &meta)
+            player::wasm::WasmImpl::load(&player_dir.join("main.wasm"), &meta)
                 .map_err(|e| AddPlayerError(e.message))
                 .map(|player_impl| Box::new(player_impl) as Box<dyn player::Impl>)
         })

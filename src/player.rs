@@ -1,6 +1,9 @@
 use core::fmt;
 use std::path::Path;
 
+pub mod lua;
+pub mod wasm;
+
 use crate::{
     color::Color,
     math_utils::{self, Point},

@@ -10,12 +10,10 @@ use settings::*;
 
 mod color;
 mod game;
-mod lua_player;
 mod math_utils;
 mod player;
 mod render;
 mod settings;
-mod wasm_player;
 
 // fn _run_replay(
 //     history_file: &Path,
