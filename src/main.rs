@@ -4,6 +4,7 @@ use std::{
     time::Duration,
 };
 
+use clap::Parser;
 use game::*;
 use render::GameRenderer;
 use settings::*;
@@ -14,6 +15,13 @@ mod math_utils;
 mod player;
 mod render;
 mod settings;
+
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    #[arg(short = 'p', long = "player")]
+    player_dirs: Vec<String>,
+}
 
 // fn _run_replay(
 //     history_file: &Path,
@@ -36,6 +44,7 @@ mod settings;
 // }
 
 fn main() {
+    let args = Args::parse();
     let (game_writer, game_reader) = mpsc::channel();
     let cancel = Arc::new(AtomicBool::new(false));
     let cancel_ref = cancel.clone();
@@ -48,8 +57,9 @@ fn main() {
 
     let game_thread = std::thread::spawn(move || -> Result<(), GameError> {
         let mut game = Game::new();
-        game.add_lua_player(Path::new("players/kai"))?;
-        game.add_lua_player(Path::new("players/lloyd"))?;
+        for player_dir in args.player_dirs {
+            game.add_lua_player(Path::new(&player_dir))?;
+        }
         game.add_wasm_player(Path::new("players/nya"))?;
 
         let delay = Duration::from_millis(7);
