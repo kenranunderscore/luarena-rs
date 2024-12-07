@@ -85,16 +85,17 @@ impl Game {
     where
         F: Fn(&player::Meta) -> Result<Box<dyn player::Impl>, AddPlayerError>,
     {
-        let meta = player::Meta::from_toml_file(&player_dir.join("meta.toml"))
+        let mut meta = player::Meta::from_toml_file(&player_dir.join("meta.toml"))
             .map_err(|e| AddPlayerError(e.0))?;
         let player_state = player::State::new();
-        let intent = player::Intent::default();
-        let implementation = load_impl(&meta)?;
+        if self.impls.contains_key(&meta) {
+            meta.instance += 1;
+        }
         self.impls.insert(
             meta.clone(),
             Player {
-                implementation,
-                intent,
+                implementation: load_impl(&meta)?,
+                intent: Default::default(),
             },
         );
         self.players.insert(meta, player_state);

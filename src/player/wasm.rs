@@ -9,7 +9,7 @@ wasmtime::component::bindgen!("player");
 struct MyState {
     ctx: wasmtime_wasi::WasiCtx,
     table: wasmtime_wasi::ResourceTable,
-    name: String,
+    display_name: String,
 }
 
 pub struct WasmImpl {
@@ -30,7 +30,7 @@ impl WasmImpl {
             MyState {
                 ctx: builder.build(),
                 table: wasmtime_wasi::ResourceTable::new(),
-                name: meta.name.clone(),
+                display_name: meta.display_name(),
             },
         );
         let bindings = Player::instantiate::<MyState>(&mut store, &component, &linker)?;
@@ -96,7 +96,7 @@ impl From<wasmtime::Error> for AddWasmPlayerError {
 
 impl PlayerImports for MyState {
     fn log(&mut self, msg: String) {
-        player::log_msg(&self.name, &msg);
+        player::log_msg(&self.display_name, &msg);
     }
 }
 

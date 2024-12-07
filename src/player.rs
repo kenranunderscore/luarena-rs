@@ -31,6 +31,8 @@ pub struct Meta {
     pub name: String,
     pub color: Color,
     pub version: String,
+    // TODO: do this properly (by nesting types)
+    pub instance: u8,
 }
 
 #[derive(Debug)]
@@ -42,6 +44,15 @@ impl Meta {
         green: 100,
         blue: 100,
     };
+
+    pub fn display_name(&self) -> String {
+        let instance_counter = if self.instance == 1 {
+            String::new()
+        } else {
+            format!(" ({})", self.instance)
+        };
+        format!("{}_{}{}", self.name, self.version, instance_counter)
+    }
 
     // FIXME: add proper error handling and refactor
     fn from_toml_str(toml: &str) -> Result<Self, LoadMetaError> {
@@ -71,6 +82,7 @@ impl Meta {
             id,
             version,
             color,
+            instance: 1,
         })
     }
 

@@ -221,7 +221,7 @@ impl LuaImpl {
 
     fn register_lua_library(&self, meta: &Meta) -> LuaResult<()> {
         let lua = &self.lua;
-        let name = meta.name.clone();
+        let name = meta.display_name();
         let mut me = lua.create_table()?;
         me.set(
             "log",
