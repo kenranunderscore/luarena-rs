@@ -1,5 +1,5 @@
 use std::{
-    path::Path,
+    path::{Path, PathBuf},
     sync::{atomic::AtomicBool, mpsc, Arc},
     time::Duration,
 };
@@ -20,7 +20,7 @@ mod settings;
 #[command(version, about, long_about = None)]
 struct Args {
     #[arg(short = 'p', long = "player")]
-    player_dirs: Vec<String>,
+    player_dirs: Vec<PathBuf>,
 }
 
 // fn _run_replay(
@@ -58,7 +58,7 @@ fn main() {
     let game_thread = std::thread::spawn(move || -> Result<(), GameError> {
         let mut game = Game::new();
         for player_dir in args.player_dirs {
-            game.add_lua_player(Path::new(&player_dir))?;
+            game.add_lua_player(&player_dir)?;
         }
         game.add_wasm_player(Path::new("players/nya"))?;
 
