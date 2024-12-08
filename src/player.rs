@@ -1,5 +1,5 @@
 use core::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub mod lua;
 pub mod wasm;
@@ -31,6 +31,7 @@ pub struct Meta {
     pub name: String,
     pub color: Color,
     pub version: String,
+    pub entrypoint: PathBuf,
     // TODO: do this properly (by nesting types)
     pub instance: u8,
 }
@@ -68,6 +69,13 @@ impl Meta {
             .get("version")
             .map_or("1.0", |v| v.as_str().unwrap_or("1.0"))
             .to_string();
+        let entrypoint = table
+            .get("entrypoint")
+            .ok_or(LoadMetaError(format!("'entrypoint' missing")))?
+            .as_str()
+            .ok_or(LoadMetaError(format!("'entrypoint' is not a string")))?
+            .to_string()
+            .into();
         let color = table.get("color").map_or(Self::DEFAULT_COLOR, |c| {
             c.as_table()
                 .map(|color_table| Color {
@@ -81,6 +89,7 @@ impl Meta {
             name,
             id,
             version,
+            entrypoint,
             color,
             instance: 1,
         })

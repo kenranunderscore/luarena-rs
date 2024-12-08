@@ -25,25 +25,16 @@ fn main() {
             headless,
         } => {
             if headless {
-                // FIXME: unnecessary background thread
-                let game_thread = std::thread::spawn(move || -> Result<(), GameError> {
-                    let mut game = Game::new();
-                    for player_dir in player_dirs {
-                        game.add_lua_player(&player_dir)?;
-                    }
-                    run_game_headless(&mut game)
-                });
-                let _ = game_thread.join().unwrap();
+                // FIXME: get rid of unwraps
+                let mut game = Game::with_players(&player_dirs).unwrap();
+                let _ = run_game_headless(&mut game).unwrap();
             } else {
                 with_gui(|writer, cancel| {
                     let player_dirs = player_dirs.clone();
                     let cancel = cancel.clone();
                     std::thread::spawn(move || {
                         let player_dirs = player_dirs.clone();
-                        let mut game = Game::new();
-                        for player_dir in player_dirs.iter() {
-                            game.add_lua_player(&player_dir)?;
-                        }
+                        let mut game = Game::with_players(&player_dirs)?;
                         let delay = Duration::from_millis(7);
                         run_game(&mut game, &delay, writer, cancel)
                     })
@@ -92,6 +83,7 @@ where
     let game_thread = run(game_writer, &cancel);
 
     let (mut rl, thread) = raylib::init()
+        .log_level(raylib::ffi::TraceLogLevel::LOG_WARNING)
         .size(WIDTH, HEIGHT)
         .title("hello world")
         .msaa_4x()

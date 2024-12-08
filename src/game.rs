@@ -1,6 +1,6 @@
 use core::fmt;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
 
@@ -82,41 +82,54 @@ impl Game {
         }
     }
 
-    fn add_player<F>(&mut self, player_dir: &Path, load_impl: F) -> Result<(), AddPlayerError>
-    where
-        F: Fn(&player::Meta) -> Result<Box<dyn player::Impl>, AddPlayerError>,
-    {
+    pub fn with_players(player_dirs: &Vec<PathBuf>) -> Result<Self, AddPlayerError> {
+        let mut game = Self::new();
+        game.add_players(player_dirs)?;
+        Ok(game)
+    }
+
+    fn add_players(&mut self, player_dirs: &Vec<PathBuf>) -> Result<(), AddPlayerError> {
+        for dir in player_dirs.iter() {
+            self.add_player(dir)?;
+        }
+        Ok(())
+    }
+
+    fn add_player(&mut self, player_dir: &Path) -> Result<(), AddPlayerError> {
         let mut meta = player::Meta::from_toml_file(&player_dir.join("meta.toml"))
             .map_err(|e| AddPlayerError(e.0))?;
         let player_state = player::State::new();
         if self.impls.contains_key(&meta) {
             meta.instance += 1;
         }
+        let extension = meta.entrypoint.extension().and_then(|s| s.to_str());
+        let implementation = match extension {
+            Some("lua") => player::lua::LuaImpl::load(player_dir, &meta)
+                .map_err(|e| AddPlayerError(e.to_string()))
+                .map(|player_impl| Box::new(player_impl) as Box<dyn player::Impl>)?,
+            Some("wasm") => player::wasm::WasmImpl::load(player_dir, &meta)
+                .map_err(|e| AddPlayerError(e.message))
+                .map(|player_impl| Box::new(player_impl) as Box<dyn player::Impl>)?,
+            Some(unexpected) => {
+                return Err(AddPlayerError(format!(
+                    "Unexpected entrypoint extension: {unexpected}"
+                )))
+            }
+            None => {
+                return Err(AddPlayerError(
+                    "Entrypoint extension undetectable".to_string(),
+                ))
+            }
+        };
         self.impls.insert(
             meta.clone(),
             Player {
-                implementation: load_impl(&meta)?,
+                implementation,
                 intent: Default::default(),
             },
         );
         self.players.insert(meta, player_state);
         Ok(())
-    }
-
-    pub fn add_lua_player(&mut self, player_dir: &Path) -> Result<(), AddPlayerError> {
-        self.add_player(player_dir, |meta| {
-            player::lua::LuaImpl::load(player_dir, &meta)
-                .map_err(|e| AddPlayerError(e.to_string()))
-                .map(|player_impl| Box::new(player_impl) as Box<dyn player::Impl>)
-        })
-    }
-
-    pub fn add_wasm_player(&mut self, player_dir: &Path) -> Result<(), AddPlayerError> {
-        self.add_player(player_dir, |meta| {
-            player::wasm::WasmImpl::load(&player_dir.join("main.wasm"), &meta)
-                .map_err(|e| AddPlayerError(e.message))
-                .map(|player_impl| Box::new(player_impl) as Box<dyn player::Impl>)
-        })
     }
 
     pub fn init_round(&mut self, round: u32, event_manager: &mut EventManager) {
