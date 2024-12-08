@@ -752,6 +752,7 @@ pub fn run_round(
     Ok(())
 }
 
+#[derive(Debug)]
 pub enum GameError {
     AddPlayerError(AddPlayerError),
     LuaPlayerEventError(player::EventError),
