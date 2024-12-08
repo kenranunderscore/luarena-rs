@@ -1,5 +1,5 @@
 use std::{
-    path::{Path, PathBuf},
+    path::Path,
     sync::{atomic::AtomicBool, mpsc, Arc},
     time::Duration,
 };
@@ -9,19 +9,13 @@ use game::*;
 use render::GameRenderer;
 use settings::*;
 
+mod cli;
 mod color;
 mod game;
 mod math_utils;
 mod player;
 mod render;
 mod settings;
-
-#[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
-struct Args {
-    #[arg(short = 'p', long = "player")]
-    player_dirs: Vec<PathBuf>,
-}
 
 // fn _run_replay(
 //     history_file: &Path,
@@ -44,7 +38,11 @@ struct Args {
 // }
 
 fn main() {
-    let args = Args::parse();
+    let cli = cli::Cli::parse();
+    let player_dirs = match cli.mode {
+        cli::Mode::Battle { player_dirs, .. } => player_dirs,
+        cli::Mode::ShowReplay { recording } => todo!("NOT IMPLEMENTED: show replay {recording:?}"),
+    };
     let (game_writer, game_reader) = mpsc::channel();
     let cancel = Arc::new(AtomicBool::new(false));
     let cancel_ref = cancel.clone();
@@ -57,7 +55,7 @@ fn main() {
 
     let game_thread = std::thread::spawn(move || -> Result<(), GameError> {
         let mut game = Game::new();
-        for player_dir in args.player_dirs {
+        for player_dir in player_dirs {
             game.add_lua_player(&player_dir)?;
         }
         game.add_wasm_player(Path::new("players/nya"))?;
