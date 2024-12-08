@@ -230,7 +230,7 @@ fn clamp_turn_angle(angle: f32) -> f32 {
 
 fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
     // TODO: is a HashMap appropriate here? is there a smarter way?
-    let mut next_positions: HashMap<player::Id, (Delta, Point)> = HashMap::new();
+    let mut next_positions: HashMap<player::Meta, (Delta, Point)> = HashMap::new();
     for (meta, player_state) in game.living_players() {
         let player = game.impls.get(&meta).unwrap();
         let delta = math_utils::clamp(player.intent.turn_angle, -MAX_TURN_RATE, MAX_TURN_RATE);
@@ -250,9 +250,9 @@ fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
         let pos = &player_state.pos;
         let next_pos = pos.add(&delta.value);
         if valid_position(&next_pos) {
-            next_positions.insert(meta.id.clone(), (delta, next_pos));
+            next_positions.insert(meta.clone(), (delta, next_pos));
         } else {
-            next_positions.insert(meta.id.clone(), (Delta::new(Point::zero()), pos.clone()));
+            next_positions.insert(meta.clone(), (Delta::new(Point::zero()), pos.clone()));
         };
 
         transition_heads(
@@ -270,10 +270,10 @@ fn transition_players(game: &mut Game, event_manager: &mut EventManager) {
     }
 
     for (meta, _) in game.living_players() {
-        let (delta, next) = next_positions.get(&meta.id).unwrap();
+        let (delta, next) = next_positions.get(&meta).unwrap();
         let mut collides = false;
-        for (other_id, (_, other_next)) in next_positions.iter() {
-            if meta.id != *other_id {
+        for (other_meta, (_, other_next)) in next_positions.iter() {
+            if meta != other_meta {
                 if players_collide(&next, &other_next) {
                     // TODO: collision event
                     collides = true;
@@ -652,7 +652,7 @@ fn run_players(game: &mut Game, events: &[GameEvent]) -> Result<(), player::Even
         let intent = &game.impls.get(meta).unwrap().intent;
         let mut player_events = game_events_to_player_events(meta, player_state, intent, events);
         for (other_meta, pos) in player_positions.iter() {
-            if other_meta.id != meta.id {
+            if other_meta != meta {
                 if can_spot(
                     &player_state.pos,
                     player_state.effective_head_heading(),
