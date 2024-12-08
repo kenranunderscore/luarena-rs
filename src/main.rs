@@ -45,21 +45,19 @@ fn main() {
                             game.add_lua_player(&player_dir)?;
                         }
                         let delay = Duration::from_millis(7);
-                        run_game(&mut game, &delay, writer, &cancel.clone())
+                        run_game(&mut game, &delay, writer, cancel)
                     })
                 });
             }
         }
-        cli::Mode::Replay { recording } => {
-            with_gui(|writer, cancel| {
-                let recording = recording.clone();
-                let cancel = cancel.clone();
-                std::thread::spawn(move || {
-                    let delay = Duration::from_millis(5);
-                    run_replay(&recording, writer, &delay, &cancel.clone())
-                })
+        cli::Mode::Replay { recording } => with_gui(|writer, cancel| {
+            let recording = recording.clone();
+            let cancel = cancel.clone();
+            std::thread::spawn(move || {
+                let delay = Duration::from_millis(5);
+                run_replay(&recording, writer, &delay, cancel)
             })
-        }
+        }),
     };
 }
 
@@ -67,7 +65,7 @@ fn run_replay(
     history_file: &Path,
     sender: mpsc::Sender<StepEvents>,
     delay: &Duration,
-    cancel: &Arc<AtomicBool>,
+    cancel: Arc<AtomicBool>,
 ) -> Result<(), String> {
     let _f = std::fs::File::open(history_file)
         .map_err(|e| format!("Could not load {history_file:?}. Error: {e}"))?;

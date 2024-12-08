@@ -785,7 +785,7 @@ pub fn run_game(
     game: &mut Game,
     delay: &std::time::Duration,
     game_writer: mpsc::Sender<StepEvents>,
-    cancel: &Arc<AtomicBool>,
+    cancel: Arc<AtomicBool>,
 ) -> Result<(), GameError> {
     let mut event_manager = EventManager::new(EventRemembrance::Forget);
     let max_rounds = 10;
@@ -794,7 +794,14 @@ pub fn run_game(
             println!("Game cancelled");
             break;
         }
-        run_round(game, round, &mut event_manager, delay, &game_writer, cancel)?;
+        run_round(
+            game,
+            round,
+            &mut event_manager,
+            delay,
+            &game_writer,
+            &cancel,
+        )?;
     }
     Ok(())
 }
