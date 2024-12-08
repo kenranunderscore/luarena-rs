@@ -82,13 +82,13 @@ impl Game {
         }
     }
 
-    pub fn with_players(player_dirs: &Vec<PathBuf>) -> Result<Self, AddPlayerError> {
+    pub fn with_players(player_dirs: &[PathBuf]) -> Result<Self, AddPlayerError> {
         let mut game = Self::new();
         game.add_players(player_dirs)?;
         Ok(game)
     }
 
-    fn add_players(&mut self, player_dirs: &Vec<PathBuf>) -> Result<(), AddPlayerError> {
+    fn add_players(&mut self, player_dirs: &[PathBuf]) -> Result<(), AddPlayerError> {
         for dir in player_dirs.iter() {
             self.add_player(dir)?;
         }
