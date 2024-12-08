@@ -237,9 +237,8 @@ impl LuaImpl {
         Ok(())
     }
 
-    // FIXME: what to use that's more generic than `Path`?
     pub fn load(player_dir: &Path, meta: &Meta) -> LuaResult<Self> {
-        let file = player_dir.join("main.lua");
+        let file = player_dir.join(&meta.entrypoint);
         let code = std::fs::read_to_string(file)?;
         let res = Self::new(&code)?;
         res.register_lua_library(meta)?;

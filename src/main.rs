@@ -17,55 +17,77 @@ mod player;
 mod render;
 mod settings;
 
-// fn _run_replay(
-//     history_file: &Path,
-//     sender: Sender<StepEvents>,
-//     delay: &Duration,
-//     cancel: &Arc<AtomicBool>,
-// ) -> Option<()> {
-//     let f = std::fs::File::open(history_file).ok()?;
-//     let steps: Vec<StepEvents> = todo!();
-//     for step_events in steps {
-//         if cancel.load(Ordering::Relaxed) {
-//             break;
-//         }
-//         sender
-//             .send(step_events)
-//             .expect("Failed sending step events");
-//         std::thread::sleep(*delay);
-//     }
-//     Some(())
-// }
-
 fn main() {
     let cli = cli::Cli::parse();
-    let player_dirs = match cli.mode {
-        cli::Mode::Battle { player_dirs, .. } => player_dirs,
-        cli::Mode::ShowReplay { recording } => todo!("NOT IMPLEMENTED: show replay {recording:?}"),
+    match cli.mode {
+        cli::Mode::Battle {
+            player_dirs,
+            headless,
+        } => {
+            if headless {
+                // FIXME: get rid of unwraps
+                let mut game = Game::with_players(&player_dirs).unwrap();
+                let _ = run_game_headless(&mut game).unwrap();
+            } else {
+                with_gui(|writer, cancel| {
+                    let player_dirs = player_dirs.clone();
+                    let cancel = cancel.clone();
+                    std::thread::spawn(move || {
+                        let player_dirs = player_dirs.clone();
+                        let mut game = Game::with_players(&player_dirs)?;
+                        let delay = Duration::from_millis(7);
+                        run_game(&mut game, &delay, writer, cancel)
+                    })
+                });
+            }
+        }
+        cli::Mode::Replay { recording } => with_gui(|writer, cancel| {
+            let recording = recording.clone();
+            let cancel = cancel.clone();
+            std::thread::spawn(move || {
+                let delay = Duration::from_millis(5);
+                run_replay(&recording, writer, &delay, cancel)
+            })
+        }),
     };
+}
+
+fn run_replay(
+    history_file: &Path,
+    sender: mpsc::Sender<StepEvents>,
+    delay: &Duration,
+    cancel: Arc<AtomicBool>,
+) -> Result<(), String> {
+    let _f = std::fs::File::open(history_file)
+        .map_err(|e| format!("Could not load {history_file:?}. Error: {e}"))?;
+    let steps: Vec<StepEvents> = vec![];
+    for step_events in steps {
+        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            break;
+        }
+        sender
+            .send(step_events)
+            .expect("Failed sending step events");
+        std::thread::sleep(*delay);
+    }
+    Ok(())
+}
+
+fn with_gui<F, Err>(run: F)
+where
+    F: Fn(mpsc::Sender<StepEvents>, &Arc<AtomicBool>) -> std::thread::JoinHandle<Result<(), Err>>,
+    Err: std::fmt::Debug,
+{
     let (game_writer, game_reader) = mpsc::channel();
     let cancel = Arc::new(AtomicBool::new(false));
-    let cancel_ref = cancel.clone();
+    let game_thread = run(game_writer, &cancel);
 
     let (mut rl, thread) = raylib::init()
+        .log_level(raylib::ffi::TraceLogLevel::LOG_WARNING)
         .size(WIDTH, HEIGHT)
         .title("hello world")
         .msaa_4x()
         .build();
-
-    let game_thread = std::thread::spawn(move || -> Result<(), GameError> {
-        let mut game = Game::new();
-        for player_dir in player_dirs {
-            game.add_lua_player(&player_dir)?;
-        }
-        game.add_wasm_player(Path::new("players/nya"))?;
-
-        let delay = Duration::from_millis(7);
-        // run_replay(Path::new("events"), game_writer, &delay, &cancel_ref).unwrap();
-        run_game(&mut game, &delay, game_writer, &cancel_ref)?;
-        Ok(())
-    });
-
     let mut renderer = GameRenderer::new(&game_reader);
     while !rl.window_should_close() && !game_thread.is_finished() {
         renderer.step(&mut rl, &thread);
@@ -73,8 +95,8 @@ fn main() {
 
     if game_thread.is_finished() {
         match game_thread.join().unwrap() {
-            Ok(_) => println!("game finished"),
-            Err(e) => println!("error: {e}"),
+            Ok(_) => println!("Game finished"),
+            Err(err) => println!("Crash: {err:?}"),
         }
     } else {
         cancel.store(true, std::sync::atomic::Ordering::Relaxed);

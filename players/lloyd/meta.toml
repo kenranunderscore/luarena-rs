@@ -1,6 +1,7 @@
 name = "Lloyd"
 version = "0.1.0"
 id = "019379de-ca27-7b13-a7bb-388606d6f0c8"
+entrypoint = "lloyd.lua"
 
 [color]
 red = 20

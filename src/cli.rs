@@ -15,7 +15,7 @@ pub enum Mode {
         #[arg(short = 'p', long = "player")]
         player_dirs: Vec<PathBuf>,
     },
-    ShowReplay {
+    Replay {
         #[arg()]
         recording: PathBuf,
     },

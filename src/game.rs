@@ -1,6 +1,6 @@
 use core::fmt;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
 
@@ -54,6 +54,7 @@ pub struct Game {
     attack_ids: AttackIds,
 }
 
+#[derive(Debug)]
 pub struct AddPlayerError(pub String);
 
 impl fmt::Display for AddPlayerError {
@@ -81,41 +82,54 @@ impl Game {
         }
     }
 
-    fn add_player<F>(&mut self, player_dir: &Path, load_impl: F) -> Result<(), AddPlayerError>
-    where
-        F: Fn(&player::Meta) -> Result<Box<dyn player::Impl>, AddPlayerError>,
-    {
+    pub fn with_players(player_dirs: &Vec<PathBuf>) -> Result<Self, AddPlayerError> {
+        let mut game = Self::new();
+        game.add_players(player_dirs)?;
+        Ok(game)
+    }
+
+    fn add_players(&mut self, player_dirs: &Vec<PathBuf>) -> Result<(), AddPlayerError> {
+        for dir in player_dirs.iter() {
+            self.add_player(dir)?;
+        }
+        Ok(())
+    }
+
+    fn add_player(&mut self, player_dir: &Path) -> Result<(), AddPlayerError> {
         let mut meta = player::Meta::from_toml_file(&player_dir.join("meta.toml"))
             .map_err(|e| AddPlayerError(e.0))?;
         let player_state = player::State::new();
         if self.impls.contains_key(&meta) {
             meta.instance += 1;
         }
+        let extension = meta.entrypoint.extension().and_then(|s| s.to_str());
+        let implementation = match extension {
+            Some("lua") => player::lua::LuaImpl::load(player_dir, &meta)
+                .map_err(|e| AddPlayerError(e.to_string()))
+                .map(|player_impl| Box::new(player_impl) as Box<dyn player::Impl>)?,
+            Some("wasm") => player::wasm::WasmImpl::load(player_dir, &meta)
+                .map_err(|e| AddPlayerError(e.message))
+                .map(|player_impl| Box::new(player_impl) as Box<dyn player::Impl>)?,
+            Some(unexpected) => {
+                return Err(AddPlayerError(format!(
+                    "Unexpected entrypoint extension: {unexpected}"
+                )))
+            }
+            None => {
+                return Err(AddPlayerError(
+                    "Entrypoint extension undetectable".to_string(),
+                ))
+            }
+        };
         self.impls.insert(
             meta.clone(),
             Player {
-                implementation: load_impl(&meta)?,
+                implementation,
                 intent: Default::default(),
             },
         );
         self.players.insert(meta, player_state);
         Ok(())
-    }
-
-    pub fn add_lua_player(&mut self, player_dir: &Path) -> Result<(), AddPlayerError> {
-        self.add_player(player_dir, |meta| {
-            player::lua::LuaImpl::load(player_dir, &meta)
-                .map_err(|e| AddPlayerError(e.to_string()))
-                .map(|player_impl| Box::new(player_impl) as Box<dyn player::Impl>)
-        })
-    }
-
-    pub fn add_wasm_player(&mut self, player_dir: &Path) -> Result<(), AddPlayerError> {
-        self.add_player(player_dir, |meta| {
-            player::wasm::WasmImpl::load(&player_dir.join("main.wasm"), &meta)
-                .map_err(|e| AddPlayerError(e.message))
-                .map(|player_impl| Box::new(player_impl) as Box<dyn player::Impl>)
-        })
     }
 
     pub fn init_round(&mut self, round: u32, event_manager: &mut EventManager) {
@@ -192,6 +206,7 @@ impl Delta {
     }
 }
 
+// TODO: use struct variants maybe
 #[derive(Clone, Debug)]
 pub enum GameEvent {
     Tick(u32),
@@ -699,7 +714,9 @@ impl StepEvents {
 pub fn step(
     game: &mut Game,
     event_manager: &mut EventManager,
-    game_writer: &mpsc::Sender<StepEvents>,
+    // FIXME: use custom type and pass in different, compile time-known
+    // implementations
+    game_writer: Option<&mpsc::Sender<StepEvents>>,
 ) -> Result<(), GameError> {
     event_manager.init_tick(game.tick);
     check_for_round_end(game, event_manager);
@@ -711,7 +728,9 @@ pub fn step(
     advance_game_state(game, &step_events.events);
     run_players(game, &step_events.events)?;
 
-    game_writer.send(step_events.clone()).unwrap();
+    if let Some(writer) = game_writer {
+        writer.send(step_events.clone()).unwrap();
+    }
     Ok(())
 }
 
@@ -730,11 +749,11 @@ pub fn run_round(
         }
 
         std::thread::sleep(*delay);
-        step(game, event_manager, game_writer)?;
+        step(game, event_manager, Some(game_writer))?;
         match game.round_state {
             RoundState::Ongoing => {}
             RoundState::Won(ref meta) => {
-                println!("Player {} with ID {} has won!", meta.name, meta.id);
+                println!("Player {} (ID {}) has won!", meta.display_name(), meta.id);
                 break;
             }
             RoundState::Draw => {
@@ -746,6 +765,7 @@ pub fn run_round(
     Ok(())
 }
 
+#[derive(Debug)]
 pub enum GameError {
     AddPlayerError(AddPlayerError),
     LuaPlayerEventError(player::EventError),
@@ -778,16 +798,55 @@ pub fn run_game(
     game: &mut Game,
     delay: &std::time::Duration,
     game_writer: mpsc::Sender<StepEvents>,
-    cancel: &Arc<AtomicBool>,
+    cancel: Arc<AtomicBool>,
 ) -> Result<(), GameError> {
     let mut event_manager = EventManager::new(EventRemembrance::Forget);
-    let max_rounds = 1000;
+    let max_rounds = 10;
     for round in 1..max_rounds + 1 {
         if cancel.load(Ordering::Relaxed) {
             println!("Game cancelled");
             break;
         }
-        run_round(game, round, &mut event_manager, delay, &game_writer, cancel)?;
+        run_round(
+            game,
+            round,
+            &mut event_manager,
+            delay,
+            &game_writer,
+            &cancel,
+        )?;
+    }
+    Ok(())
+}
+
+pub fn run_round_headless(
+    game: &mut Game,
+    round: u32,
+    event_manager: &mut EventManager,
+) -> Result<(), GameError> {
+    game.init_round(round, event_manager);
+    loop {
+        step(game, event_manager, None)?;
+        match game.round_state {
+            RoundState::Ongoing => {}
+            RoundState::Won(ref meta) => {
+                println!("Player {} (ID {}) has won!", meta.display_name(), meta.id);
+                break;
+            }
+            RoundState::Draw => {
+                println!("--- DRAW ---");
+                break;
+            }
+        }
+    }
+    Ok(())
+}
+
+pub fn run_game_headless(game: &mut Game) -> Result<(), GameError> {
+    let mut event_manager = EventManager::new(EventRemembrance::Forget);
+    let max_rounds = 10;
+    for round in 1..max_rounds + 1 {
+        run_round_headless(game, round, &mut event_manager)?;
     }
     Ok(())
 }

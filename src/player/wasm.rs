@@ -18,9 +18,10 @@ pub struct WasmImpl {
 }
 
 impl WasmImpl {
-    pub fn load(component_file: &Path, meta: &player::Meta) -> Result<Self, AddWasmPlayerError> {
+    pub fn load(player_dir: &Path, meta: &player::Meta) -> Result<Self, AddWasmPlayerError> {
         let engine = wasmtime::Engine::default();
-        let component = wasmtime::component::Component::from_file(&engine, component_file)?;
+        let file = player_dir.join(&meta.entrypoint);
+        let component = wasmtime::component::Component::from_file(&engine, file)?;
         let mut linker = wasmtime::component::Linker::new(&engine);
         wasmtime_wasi::add_to_linker_sync(&mut linker)?;
         Player::add_to_linker(&mut linker, |state: &mut MyState| state)?;
