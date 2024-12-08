@@ -54,6 +54,7 @@ pub struct Game {
     attack_ids: AttackIds,
 }
 
+#[derive(Debug)]
 pub struct AddPlayerError(pub String);
 
 impl fmt::Display for AddPlayerError {
@@ -192,6 +193,7 @@ impl Delta {
     }
 }
 
+// TODO: use struct variants maybe
 #[derive(Clone, Debug)]
 pub enum GameEvent {
     Tick(u32),
@@ -699,7 +701,9 @@ impl StepEvents {
 pub fn step(
     game: &mut Game,
     event_manager: &mut EventManager,
-    game_writer: &mpsc::Sender<StepEvents>,
+    // FIXME: use custom type and pass in different, compile time-known
+    // implementations
+    game_writer: Option<&mpsc::Sender<StepEvents>>,
 ) -> Result<(), GameError> {
     event_manager.init_tick(game.tick);
     check_for_round_end(game, event_manager);
@@ -711,7 +715,9 @@ pub fn step(
     advance_game_state(game, &step_events.events);
     run_players(game, &step_events.events)?;
 
-    game_writer.send(step_events.clone()).unwrap();
+    if let Some(writer) = game_writer {
+        writer.send(step_events.clone()).unwrap();
+    }
     Ok(())
 }
 
@@ -730,11 +736,11 @@ pub fn run_round(
         }
 
         std::thread::sleep(*delay);
-        step(game, event_manager, game_writer)?;
+        step(game, event_manager, Some(game_writer))?;
         match game.round_state {
             RoundState::Ongoing => {}
             RoundState::Won(ref meta) => {
-                println!("Player {} with ID {} has won!", meta.name, meta.id);
+                println!("Player {} (ID {}) has won!", meta.display_name(), meta.id);
                 break;
             }
             RoundState::Draw => {
@@ -781,13 +787,45 @@ pub fn run_game(
     cancel: &Arc<AtomicBool>,
 ) -> Result<(), GameError> {
     let mut event_manager = EventManager::new(EventRemembrance::Forget);
-    let max_rounds = 1000;
+    let max_rounds = 10;
     for round in 1..max_rounds + 1 {
         if cancel.load(Ordering::Relaxed) {
             println!("Game cancelled");
             break;
         }
         run_round(game, round, &mut event_manager, delay, &game_writer, cancel)?;
+    }
+    Ok(())
+}
+
+pub fn run_round_headless(
+    game: &mut Game,
+    round: u32,
+    event_manager: &mut EventManager,
+) -> Result<(), GameError> {
+    game.init_round(round, event_manager);
+    loop {
+        step(game, event_manager, None)?;
+        match game.round_state {
+            RoundState::Ongoing => {}
+            RoundState::Won(ref meta) => {
+                println!("Player {} (ID {}) has won!", meta.display_name(), meta.id);
+                break;
+            }
+            RoundState::Draw => {
+                println!("--- DRAW ---");
+                break;
+            }
+        }
+    }
+    Ok(())
+}
+
+pub fn run_game_headless(game: &mut Game) -> Result<(), GameError> {
+    let mut event_manager = EventManager::new(EventRemembrance::Forget);
+    let max_rounds = 10;
+    for round in 1..max_rounds + 1 {
+        run_round_headless(game, round, &mut event_manager)?;
     }
     Ok(())
 }
