@@ -35,7 +35,7 @@ impl PlayerData {
     fn new(meta: &player::Meta, p: &Point) -> Self {
         Self {
             color: to_raylib_color(&meta.color),
-            display_name: format!("{} {}", meta.name, meta.version),
+            display_name: format!("{}", meta.display_name()),
             x: p.x,
             y: p.y,
             heading: 0.0,
