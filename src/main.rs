@@ -33,7 +33,6 @@ fn main() {
                     let player_dirs = player_dirs.clone();
                     let cancel = cancel.clone();
                     std::thread::spawn(move || {
-                        let player_dirs = player_dirs.clone();
                         let mut game = Game::with_players(&player_dirs)?;
                         let delay = Duration::from_millis(7);
                         run_game(&mut game, &delay, writer, cancel)

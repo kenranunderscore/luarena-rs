@@ -629,16 +629,10 @@ fn advance_game_state(game: &mut Game, events: &[GameEvent]) {
 fn check_for_round_end(game: &Game, event_manager: &mut EventManager) {
     let nplayers = game.living_players().count();
     match nplayers {
-        0 => {
-            println!("none");
-            event_manager.record(GameEvent::RoundEnded(None));
-        }
-        1 => {
-            println!("some");
-            event_manager.record(GameEvent::RoundEnded(Some(
-                game.living_players().nth(0).unwrap().0.clone(),
-            )));
-        }
+        0 => event_manager.record(GameEvent::RoundEnded(None)),
+        1 => event_manager.record(GameEvent::RoundEnded(Some(
+            game.living_players().nth(0).unwrap().0.clone(),
+        ))),
         _ => {}
     }
 }
