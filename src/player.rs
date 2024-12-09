@@ -293,6 +293,7 @@ mod tests {
 name = \"Kai\"
 id = \"00000000-0000-0000-0000-000000000000\"
 version = \"1.09c\"
+entrypoint = \"main.lua\"
 [color]
 red = 243
 green = 0
@@ -305,6 +306,7 @@ blue = 13
                 Id(uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap())
             );
             assert_eq!(meta.version, "1.09c");
+            assert_eq!(meta.entrypoint.to_str().unwrap(), "main.lua");
             assert_eq!(
                 meta.color,
                 Color {
@@ -321,6 +323,7 @@ blue = 13
             let toml_str = "
 name = \"Kai\"
 id = \"00000000-0000-0000-0000-000000000000\"
+entrypoint = \"kai.lua\"
 ";
             let meta = Meta::from_toml_str(toml_str).unwrap();
             assert_eq!(meta.version, "1.0");
@@ -330,8 +333,9 @@ id = \"00000000-0000-0000-0000-000000000000\"
         fn color_has_default_value() {
             // TODO: add `PlayerColor` implementing Default
             let toml_str = "
-name = \"Kai\"
+name = \"Nya\"
 id = \"00000000-0000-0000-0000-000000000000\"
+entrypoint = \"nya.wasm\"
 ";
             let meta = Meta::from_toml_str(toml_str).unwrap();
             assert_eq!(meta.color, Meta::DEFAULT_COLOR);
