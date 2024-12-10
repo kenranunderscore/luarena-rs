@@ -47,8 +47,17 @@ pub enum RoundState {
 #[derive(Debug, Clone, Copy)]
 pub struct Round(u32);
 
+#[derive(Debug, Clone, Copy)]
+pub struct Tick(u32);
+
+impl Tick {
+    pub fn advance(&mut self) {
+        self.0 += 1;
+    }
+}
+
 pub struct Game {
-    pub tick: u32,
+    pub tick: Tick,
     pub round: Round,
     pub players: HashMap<player::Meta, player::State>,
     pub impls: HashMap<player::Meta, Player>,
@@ -75,7 +84,7 @@ impl From<mlua::Error> for AddPlayerError {
 impl Game {
     pub fn new() -> Game {
         Self {
-            tick: 0,
+            tick: Tick(0),
             round: Round(1),
             players: HashMap::new(),
             impls: HashMap::new(),
@@ -136,7 +145,7 @@ impl Game {
     }
 
     pub fn init_round(&mut self, round: Round, event_manager: &mut EventManager) {
-        self.tick = 0;
+        self.tick = Tick(0);
         self.round = round;
         self.round_state = RoundState::Ongoing;
         self.attacks = vec![];
@@ -212,7 +221,7 @@ impl Delta {
 // TODO: use struct variants maybe
 #[derive(Clone, Debug)]
 pub enum GameEvent {
-    Tick(u32),
+    Tick(Tick),
     RoundStarted(Round, HashMap<player::Meta, Point>),
     RoundEnded(Option<player::Meta>),
     PlayerHeadTurned(player::Meta, f32),
@@ -329,9 +338,9 @@ fn game_events_to_player_events(
     let mut player_events = Vec::new();
     for event in game_events.iter() {
         match event {
-            GameEvent::Tick(n) => {
+            GameEvent::Tick(tick) => {
                 player_events.push(player::Event::Tick(
-                    *n,
+                    tick.0,
                     player::CurrentPlayerState::from_state(&player_state, &intent),
                 ));
             }
@@ -470,13 +479,13 @@ impl EventManager {
             StepEvents::from_slice(&vec![GameEvent::RoundStarted(round, players)]);
     }
 
-    pub fn init_tick(&mut self, tick: u32) {
+    pub fn init_tick(&mut self, tick: Tick) {
         if self.remember_events() {
             self.all_events.push(self.current_events.clone());
         }
         // HACK: find a good solution for the first events in a round
         let tick_event = GameEvent::Tick(tick);
-        if tick == 0 {
+        if tick.0 == 0 {
             self.record(tick_event);
         } else {
             self.current_events.events = vec![tick_event];
@@ -530,7 +539,7 @@ fn advance_game_state(game: &mut Game, events: &[GameEvent]) {
     for event in events {
         match event {
             GameEvent::Tick(_) => {
-                game.tick += 1;
+                game.tick.advance();
                 // FIXME: check whether saving the next tick shooting is
                 // possible again might be better; but then again we could not
                 // as easily add a Lua getter...
