@@ -2,7 +2,8 @@ use std::path::Path;
 
 use exports::luarena::player::handlers::{self, Command, Movement, MovementDirection};
 
-use crate::{math_utils, player};
+use super::meta;
+use crate::math_utils;
 
 wasmtime::component::bindgen!("player");
 
@@ -18,7 +19,7 @@ pub struct WasmImpl {
 }
 
 impl WasmImpl {
-    pub fn load(player_dir: &Path, meta: &player::Meta) -> Result<Self, AddWasmPlayerError> {
+    pub fn load(player_dir: &Path, meta: &meta::Meta) -> Result<Self, AddWasmPlayerError> {
         let engine = wasmtime::Engine::default();
         let file = player_dir.join(&meta.entrypoint);
         let component = wasmtime::component::Component::from_file(&engine, file)?;
@@ -49,18 +50,18 @@ impl wasmtime_wasi::WasiView for MyState {
     }
 }
 
-impl From<&MovementDirection> for player::MovementDirection {
+impl From<&MovementDirection> for super::MovementDirection {
     fn from(value: &MovementDirection) -> Self {
         match value {
-            MovementDirection::Forward => player::MovementDirection::Forward,
-            MovementDirection::Backward => player::MovementDirection::Backward,
-            MovementDirection::Left => player::MovementDirection::Left,
-            MovementDirection::Right => player::MovementDirection::Right,
+            MovementDirection::Forward => super::MovementDirection::Forward,
+            MovementDirection::Backward => super::MovementDirection::Backward,
+            MovementDirection::Left => super::MovementDirection::Left,
+            MovementDirection::Right => super::MovementDirection::Right,
         }
     }
 }
 
-impl From<&Command> for player::Command {
+impl From<&Command> for super::Command {
     fn from(value: &Command) -> Self {
         match value {
             Command::Move(Movement {
@@ -75,7 +76,7 @@ impl From<&Command> for player::Command {
     }
 }
 
-impl From<wasmtime::Error> for player::EventError {
+impl From<wasmtime::Error> for super::EventError {
     fn from(value: wasmtime::Error) -> Self {
         Self {
             message: value.to_string(),
@@ -97,7 +98,7 @@ impl From<wasmtime::Error> for AddWasmPlayerError {
 
 impl PlayerImports for MyState {
     fn log(&mut self, msg: String) {
-        player::log_msg(&self.display_name, &msg);
+        super::log_msg(&self.display_name, &msg);
     }
 }
 
@@ -107,19 +108,19 @@ impl From<&math_utils::Point> for handlers::Point {
     }
 }
 
-impl From<Vec<Command>> for player::Commands {
+impl From<Vec<Command>> for super::Commands {
     fn from(cmds: Vec<Command>) -> Self {
         let mut res = vec![];
         for cmd in cmds.iter() {
-            let cmd: player::Command = cmd.into();
+            let cmd: super::Command = cmd.into();
             res.push(cmd);
         }
-        player::Commands::from(res)
+        super::Commands::from(res)
     }
 }
 
-impl From<&player::CurrentPlayerState> for handlers::PlayerState {
-    fn from(value: &player::CurrentPlayerState) -> Self {
+impl From<&super::CurrentPlayerState> for handlers::PlayerState {
+    fn from(value: &super::CurrentPlayerState) -> Self {
         handlers::PlayerState {
             x: value.x,
             y: value.y,
@@ -135,81 +136,81 @@ impl From<&player::CurrentPlayerState> for handlers::PlayerState {
     }
 }
 
-impl player::Impl for WasmImpl {
-    fn on_event(&mut self, event: &player::Event) -> Result<player::Commands, player::EventError> {
+impl super::Impl for WasmImpl {
+    fn on_event(&mut self, event: &super::Event) -> Result<super::Commands, super::EventError> {
         match event {
-            player::Event::Tick(tick, state) => {
+            super::Event::Tick(tick, state) => {
                 let commands = self.bindings.luarena_player_handlers().call_on_tick(
                     &mut self.store,
                     *tick,
                     state.into(),
                 )?;
-                Ok(player::Commands::from(commands))
+                Ok(super::Commands::from(commands))
             }
-            player::Event::RoundStarted(round) => {
+            super::Event::RoundStarted(round) => {
                 let commands = self
                     .bindings
                     .luarena_player_handlers()
                     .call_on_round_started(&mut self.store, *round)?;
-                Ok(player::Commands::from(commands))
+                Ok(super::Commands::from(commands))
             }
-            player::Event::EnemySeen(enemy, p) => {
+            super::Event::EnemySeen(enemy, p) => {
                 let commands = self.bindings.luarena_player_handlers().call_on_enemy_seen(
                     &mut self.store,
                     enemy,
                     p.into(),
                 )?;
-                Ok(player::Commands::from(commands))
+                Ok(super::Commands::from(commands))
             }
-            player::Event::Death => {
+            super::Event::Death => {
                 self.bindings
                     .luarena_player_handlers()
                     .call_on_death(&mut self.store)?;
-                Ok(player::Commands::none())
+                Ok(super::Commands::none())
             }
-            player::Event::HitBy(enemy) => {
+            super::Event::HitBy(enemy) => {
                 let commands = self
                     .bindings
                     .luarena_player_handlers()
                     // FIXME: enemy
                     .call_on_hit_by(&mut self.store, &enemy.name.to_string())?;
-                Ok(player::Commands::from(commands))
+                Ok(super::Commands::from(commands))
             }
-            player::Event::AttackHit(enemy, p) => {
+            super::Event::AttackHit(enemy, p) => {
                 let commands = self.bindings.luarena_player_handlers().call_on_attack_hit(
                     &mut self.store,
                     &enemy.name.to_string(),
                     p.into(),
                 )?;
-                Ok(player::Commands::from(commands))
+                Ok(super::Commands::from(commands))
             }
-            player::Event::EnemyDied(enemy_id) => {
+            super::Event::EnemyDied(enemy_id) => {
                 let commands = self
                     .bindings
                     .luarena_player_handlers()
                     .call_on_enemy_died(&mut self.store, &enemy_id.to_string())?;
-                Ok(player::Commands::from(commands))
+                Ok(super::Commands::from(commands))
             }
-            player::Event::RoundEnded(opt_winner) => {
+            super::Event::RoundEnded(opt_winner) => {
                 self.bindings
                     .luarena_player_handlers()
                     .call_on_round_ended(
                         &mut self.store,
                         opt_winner.as_ref().map(|m| m.name.as_str()),
                     )?;
-                Ok(player::Commands::none())
+                Ok(super::Commands::none())
             }
-            player::Event::RoundWon => {
+            super::Event::RoundWon => {
                 self.bindings
                     .luarena_player_handlers()
                     .call_on_round_won(&mut self.store)?;
-                Ok(player::Commands::none())
+                Ok(super::Commands::none())
             }
-            player::Event::RoundDrawn => {
+            super::Event::RoundDrawn => {
                 self.bindings
                     .luarena_player_handlers()
                     .call_on_round_drawn(&mut self.store)?;
-                Ok(player::Commands::none())
+                Ok(super::Commands::none())
             }
         }
     }

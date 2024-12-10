@@ -2,9 +2,9 @@ use std::path::Path;
 
 use mlua::prelude::*;
 
+use super::{meta, *};
 use crate::color::Color;
 use crate::math_utils::{self, Point};
-use crate::player::*;
 
 impl<'a> IntoLua<'a> for Point {
     fn into_lua(self, lua: &'a Lua) -> LuaResult<LuaValue<'a>> {
@@ -219,7 +219,7 @@ impl LuaImpl {
         Ok(res)
     }
 
-    fn register_lua_library(&self, meta: &Meta) -> LuaResult<()> {
+    fn register_lua_library(&self, meta: &meta::Meta) -> LuaResult<()> {
         let lua = &self.lua;
         let name = meta.display_name();
         let mut me = lua.create_table()?;
@@ -237,7 +237,7 @@ impl LuaImpl {
         Ok(())
     }
 
-    pub fn load(player_dir: &Path, meta: &Meta) -> LuaResult<Self> {
+    pub fn load(player_dir: &Path, meta: &meta::Meta) -> LuaResult<Self> {
         let file = player_dir.join(&meta.entrypoint);
         let code = std::fs::read_to_string(file)?;
         let res = Self::new(&code)?;
