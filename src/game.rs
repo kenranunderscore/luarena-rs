@@ -44,9 +44,12 @@ pub enum RoundState {
     Draw,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct Round(u32);
+
 pub struct Game {
     pub tick: u32,
-    pub round: u32,
+    pub round: Round,
     pub players: HashMap<player::Meta, player::State>,
     pub impls: HashMap<player::Meta, Player>,
     pub attacks: Vec<Attack>,
@@ -73,7 +76,7 @@ impl Game {
     pub fn new() -> Game {
         Self {
             tick: 0,
-            round: 1,
+            round: Round(1),
             players: HashMap::new(),
             impls: HashMap::new(),
             attacks: vec![],
@@ -132,7 +135,7 @@ impl Game {
         Ok(())
     }
 
-    pub fn init_round(&mut self, round: u32, event_manager: &mut EventManager) {
+    pub fn init_round(&mut self, round: Round, event_manager: &mut EventManager) {
         self.tick = 0;
         self.round = round;
         self.round_state = RoundState::Ongoing;
@@ -210,7 +213,7 @@ impl Delta {
 #[derive(Clone, Debug)]
 pub enum GameEvent {
     Tick(u32),
-    RoundStarted(u32, HashMap<player::Meta, Point>),
+    RoundStarted(Round, HashMap<player::Meta, Point>),
     RoundEnded(Option<player::Meta>),
     PlayerHeadTurned(player::Meta, f32),
     PlayerArmsTurned(player::Meta, f32),
@@ -333,7 +336,7 @@ fn game_events_to_player_events(
                 ));
             }
             GameEvent::RoundStarted(round, _) => {
-                player_events.push(player::Event::RoundStarted(*round));
+                player_events.push(player::Event::RoundStarted(round.0));
             }
             GameEvent::RoundEnded(opt_meta) => {
                 player_events.push(player::Event::RoundEnded(opt_meta.clone()));
@@ -459,7 +462,7 @@ impl EventManager {
         self.mode == EventRemembrance::Remember
     }
 
-    pub fn init_round(&mut self, round: u32, players: HashMap<player::Meta, Point>) {
+    pub fn init_round(&mut self, round: Round, players: HashMap<player::Meta, Point>) {
         if self.remember_events() {
             self.all_events.push(self.current_events.clone());
         }
@@ -730,7 +733,7 @@ pub fn step(
 
 pub fn run_round(
     game: &mut Game,
-    round: u32,
+    round: Round,
     event_manager: &mut EventManager,
     delay: &std::time::Duration,
     game_writer: &mpsc::Sender<StepEvents>,
@@ -803,7 +806,7 @@ pub fn run_game(
         }
         run_round(
             game,
-            round,
+            Round(round),
             &mut event_manager,
             delay,
             &game_writer,
@@ -815,7 +818,7 @@ pub fn run_game(
 
 pub fn run_round_headless(
     game: &mut Game,
-    round: u32,
+    round: Round,
     event_manager: &mut EventManager,
 ) -> Result<(), GameError> {
     game.init_round(round, event_manager);
@@ -840,7 +843,7 @@ pub fn run_game_headless(game: &mut Game) -> Result<(), GameError> {
     let mut event_manager = EventManager::new(EventRemembrance::Forget);
     let max_rounds = 10;
     for round in 1..max_rounds + 1 {
-        run_round_headless(game, round, &mut event_manager)?;
+        run_round_headless(game, Round(round), &mut event_manager)?;
     }
     Ok(())
 }
