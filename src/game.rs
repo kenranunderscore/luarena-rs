@@ -134,13 +134,7 @@ impl Game {
                 ))
             }
         };
-        self.impls.insert(
-            meta.clone(),
-            Player {
-                implementation,
-                intent: Default::default(),
-            },
-        );
+        self.impls.insert(meta.clone(), Player::new(implementation));
         self.players.insert(meta, player_state);
         Ok(())
     }
@@ -186,6 +180,18 @@ impl Game {
 
     pub fn player(&mut self, meta: &player::Meta) -> &mut Player {
         self.impls.get_mut(meta).unwrap()
+    }
+
+    pub fn print_stats(&self) {
+        println!("  Rounds won:");
+        for (meta, player_state) in self.players.iter() {
+            let stats = &player_state.stats;
+            println!(
+                "    {}: {} rounds won",
+                meta.display_name(),
+                stats.rounds_won
+            );
+        }
     }
 }
 
@@ -566,12 +572,13 @@ fn advance_game_state(game: &mut Game, events: &[GameEvent]) {
                 }
             }
             GameEvent::RoundStarted(_, _) => {}
-            GameEvent::RoundEnded(opt_winner) => {
-                game.round_state = match opt_winner {
-                    Some(winner) => RoundState::Won(winner.clone()),
-                    None => RoundState::Draw,
+            GameEvent::RoundEnded(opt_winner) => match opt_winner {
+                Some(winner) => {
+                    game.round_state = RoundState::Won(winner.clone());
+                    game.player_state(winner).stats.rounds_won += 1;
                 }
-            }
+                None => game.round_state = RoundState::Draw,
+            },
             GameEvent::PlayerPositionUpdated(id, delta) => {
                 let d;
                 {
@@ -837,6 +844,8 @@ pub fn run_game(
             &cancel,
         )?;
     }
+    println!("GAME OVER");
+    game.print_stats();
     Ok(())
 }
 
@@ -860,6 +869,8 @@ pub fn run_round_headless(
             }
         }
     }
+    println!("GAME OVER");
+    game.print_stats();
     Ok(())
 }
 

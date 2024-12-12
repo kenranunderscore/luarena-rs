@@ -55,6 +55,15 @@ pub struct Player {
     pub intent: Intent,
 }
 
+impl Player {
+    pub fn new(implementation: Box<dyn Impl>) -> Self {
+        Self {
+            implementation,
+            intent: Default::default(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct CurrentPlayerState {
     pub x: f32,
@@ -160,6 +169,10 @@ pub trait Impl {
     fn on_event(&mut self, event: &Event) -> Result<Commands, EventError>;
 }
 
+pub struct Stats {
+    pub rounds_won: u32,
+}
+
 pub struct State {
     pub hp: f32,
     pub pos: Point,
@@ -167,6 +180,7 @@ pub struct State {
     pub head_heading: f32,
     pub arms_heading: f32,
     pub attack_cooldown: u8,
+    pub stats: Stats,
 }
 
 impl State {
@@ -178,6 +192,7 @@ impl State {
             head_heading: 0.0,
             arms_heading: 0.0,
             attack_cooldown: 0,
+            stats: Stats { rounds_won: 0 },
         }
     }
 
