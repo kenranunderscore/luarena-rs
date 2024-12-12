@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
 
+use rand::rngs::ThreadRng;
 use rand::Rng;
 
 use crate::math_utils::{self, Point, Sector, HALF_PI};
@@ -149,21 +150,14 @@ impl Game {
         self.round = round;
         self.round_state = RoundState::Ongoing;
         self.attacks = vec![];
-        let min = PLAYER_RADIUS + 5.0;
-        let max_x = WIDTH as f32 - PLAYER_RADIUS - 5.0;
-        let max_y = HEIGHT as f32 - PLAYER_RADIUS - 5.0;
-        let mut rng = rand::thread_rng();
         let mut players = HashMap::new();
-        for (meta, player_state) in self.players.iter_mut() {
-            // FIXME: don't create collisions
-            let random_pos = Point {
-                x: rng.gen_range(min..max_x) as f32,
-                y: rng.gen_range(min..max_y) as f32,
-            };
+        let rng = rand::thread_rng();
+        let randomized_positions = random_positions(self.players.len(), rng);
+        for ((meta, player_state), p) in self.players.iter_mut().zip(randomized_positions.iter()) {
             // FIXME: it would be nice to change state later (as with the rest),
             // but that creates problems with the check for "round over"
-            player_state.reset(random_pos.clone());
-            players.insert(meta.clone(), random_pos);
+            player_state.reset(p.clone());
+            players.insert(meta.clone(), p.clone());
         }
         event_manager.init_round(round, players);
         for (_, player) in self.impls.iter_mut() {
@@ -193,6 +187,27 @@ impl Game {
     pub fn player(&mut self, meta: &player::Meta) -> &mut Player {
         self.impls.get_mut(meta).unwrap()
     }
+}
+
+fn random_positions(n: usize, mut rng: ThreadRng) -> Vec<Point> {
+    let wall_dist = 20.0;
+    let min = PLAYER_RADIUS + wall_dist;
+    let max_x = WIDTH as f32 - PLAYER_RADIUS - wall_dist;
+    let max_y = HEIGHT as f32 - PLAYER_RADIUS - wall_dist;
+    let mut positions = vec![];
+    for _i in 0..n {
+        loop {
+            let new_p = Point {
+                x: rng.gen_range(min..max_x) as f32,
+                y: rng.gen_range(min..max_y) as f32,
+            };
+            if !positions.iter().any(|p| players_collide(p, &new_p)) {
+                positions.push(new_p);
+                break;
+            }
+        }
+    }
+    positions
 }
 
 fn reduce_commands(commands: &mut Vec<player::Command>) {
