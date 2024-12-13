@@ -98,7 +98,7 @@ impl CurrentCharacterState {
 #[derive(Debug)]
 pub enum Event {
     Tick(u32, CurrentCharacterState),
-    RoundStarted(u32),
+    RoundStarted(u16),
     RoundEnded(Option<Meta>),
     RoundDrawn,
     RoundWon,

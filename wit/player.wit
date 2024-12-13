@@ -39,7 +39,7 @@ interface handlers {
         arms-turn-remaining: f32,
     }
 
-    on-round-started: func(round: u32) -> list<command>;
+    on-round-started: func(round: u16) -> list<command>;
     on-round-ended: func(opt-winner: option<string>);
     on-round-won: func();
     on-round-drawn: func();

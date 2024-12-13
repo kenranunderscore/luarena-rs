@@ -47,7 +47,7 @@ pub enum RoundState {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct Round(u32);
+pub struct Round(u16);
 
 #[derive(Debug, Clone, Copy)]
 pub struct Tick(u32);
