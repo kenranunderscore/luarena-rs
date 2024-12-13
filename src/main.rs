@@ -10,37 +10,38 @@ use render::GameRenderer;
 use settings::*;
 
 mod character;
-mod cli;
 mod color;
+mod config;
 mod game;
 mod math_utils;
 mod render;
 mod settings;
 
 fn main() {
-    let cli = cli::Cli::parse();
+    let cli = config::Cli::parse();
     match cli.mode {
-        cli::Mode::Battle {
-            character_dirs,
+        config::Mode::Battle {
+            battle_configuration,
             headless,
         } => {
             if headless {
                 // FIXME: get rid of unwraps
-                let mut game = Game::with_characters(&character_dirs).unwrap();
-                let _ = run_game_headless(&mut game).unwrap();
+                let mut game = Game::with_characters(&battle_configuration.characters).unwrap();
+                let _ = run_game_headless(&mut game, battle_configuration).unwrap();
             } else {
                 with_gui(|writer, cancel| {
-                    let character_dirs = character_dirs.clone();
+                    let character_dirs = battle_configuration.characters.clone();
                     let cancel = cancel.clone();
+                    let battle_configuration = battle_configuration.clone();
                     std::thread::spawn(move || {
                         let mut game = Game::with_characters(&character_dirs)?;
                         let delay = Duration::from_millis(7);
-                        run_game(&mut game, &delay, writer, cancel)
+                        run_game(&mut game, battle_configuration, &delay, writer, cancel)
                     })
                 });
             }
         }
-        cli::Mode::Replay { recording } => with_gui(|writer, cancel| {
+        config::Mode::Replay { recording } => with_gui(|writer, cancel| {
             let recording = recording.clone();
             let cancel = cancel.clone();
             std::thread::spawn(move || {

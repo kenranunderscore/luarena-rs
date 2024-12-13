@@ -8,6 +8,7 @@ use rand::rngs::ThreadRng;
 use rand::Rng;
 
 use crate::character::{self, Character, MovementDirection};
+use crate::config::BattleConfiguration;
 use crate::math_utils::{self, Point, Sector, HALF_PI};
 use crate::settings::*;
 
@@ -846,13 +847,13 @@ impl From<character::EventError> for GameError {
 
 pub fn run_game(
     game: &mut Game,
+    battle_configuration: BattleConfiguration,
     delay: &std::time::Duration,
     game_writer: mpsc::Sender<StepEvents>,
     cancel: Arc<AtomicBool>,
 ) -> Result<(), GameError> {
     let mut event_manager = EventManager::new(EventRemembrance::Forget);
-    let max_rounds = 10;
-    for round in 1..max_rounds + 1 {
+    for round in 1..=battle_configuration.rounds {
         if cancel.load(Ordering::Relaxed) {
             println!("Game cancelled");
             break;
@@ -900,10 +901,12 @@ pub fn run_round_headless(
     Ok(())
 }
 
-pub fn run_game_headless(game: &mut Game) -> Result<(), GameError> {
+pub fn run_game_headless(
+    game: &mut Game,
+    battle_configuration: BattleConfiguration,
+) -> Result<(), GameError> {
     let mut event_manager = EventManager::new(EventRemembrance::Forget);
-    let max_rounds = 10;
-    for round in 1..max_rounds + 1 {
+    for round in 1..=battle_configuration.rounds {
         run_round_headless(game, Round(round), &mut event_manager)?;
     }
     Ok(())
