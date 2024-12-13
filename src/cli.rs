@@ -12,8 +12,8 @@ pub enum Mode {
     Battle {
         #[arg(short = 'H', long = "headless", default_value_t = false)]
         headless: bool,
-        #[arg(short = 'p', long = "player")]
-        player_dirs: Vec<PathBuf>,
+        #[arg(short = 'c', long = "character")]
+        character_dirs: Vec<PathBuf>, // FIXME: this is configuration, not CLI!
     },
     Replay {
         #[arg()]

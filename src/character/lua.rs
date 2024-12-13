@@ -21,7 +21,7 @@ impl<'a> IntoLua<'a> for Id {
     }
 }
 
-impl<'a> IntoLua<'a> for &CurrentPlayerState {
+impl<'a> IntoLua<'a> for &CurrentCharacterState {
     fn into_lua(self, lua: &'a Lua) -> LuaResult<LuaValue<'a>> {
         let t = lua.create_table()?;
         t.set("x", self.x)?;
@@ -109,8 +109,8 @@ impl<'a> FromLua<'a> for Command {
             },
             _ => Err(mlua::Error::FromLuaConversionError {
                 from: value.type_name(),
-                to: "PlayerCommand",
-                message: Some("expected valid player command".to_string()),
+                to: "CharacterCommand",
+                message: Some("expected valid character command".to_string()),
             }),
         }
     }
@@ -231,14 +231,14 @@ impl LuaImpl {
                 Ok(())
             })?,
         )?;
-        register_player_commands(&mut me, lua)?;
+        register_commands(&mut me, lua)?;
         lua.globals().set("me", me)?;
         register_utils(lua)?;
         Ok(())
     }
 
-    pub fn load(player_dir: &Path, meta: &meta::Meta) -> LuaResult<Self> {
-        let file = player_dir.join(&meta.entrypoint);
+    pub fn load(character_dir: &Path, meta: &meta::Meta) -> LuaResult<Self> {
+        let file = character_dir.join(&meta.entrypoint);
         let code = std::fs::read_to_string(file)?;
         let res = Self::new(&code)?;
         res.register_lua_library(meta)?;
@@ -280,7 +280,7 @@ impl From<mlua::Error> for EventError {
     }
 }
 
-fn register_player_commands(t: &mut LuaTable, lua: &Lua) -> LuaResult<()> {
+fn register_commands(t: &mut LuaTable, lua: &Lua) -> LuaResult<()> {
     let move_ =
         lua.create_function(|_, dist: f32| Ok(Command::Move(MovementDirection::Forward, dist)))?;
     t.set("move", move_)?;
@@ -339,27 +339,27 @@ fn register_utils(lua: &Lua) -> LuaResult<()> {
 mod tests {
     use super::*;
 
-    mod lua_player {
+    mod lua_character {
         use super::*;
 
         #[test]
-        fn lua_player_can_be_loaded_from_code() {
-            LuaImpl::new("return {}").expect("lua player could not be created");
+        fn lua_character_can_be_loaded_from_code() {
+            LuaImpl::new("return {}").expect("lua character could not be created");
         }
 
         #[test]
         fn call_on_tick() {
-            let mut player = LuaImpl::new("return { on_round_started = function(n) return { { tag = \"move\", distance = 13.12, direction = \"left\" } } end }")
-                .expect("lua player could not be created");
-            let res: Commands = player.on_event(&Event::RoundStarted(17)).unwrap();
+            let mut character = LuaImpl::new("return { on_round_started = function(n) return { { tag = \"move\", distance = 13.12, direction = \"left\" } } end }")
+                .expect("lua character could not be created");
+            let res: Commands = character.on_event(&Event::RoundStarted(17)).unwrap();
             let cmd = res.value.first().expect("some command");
             assert_eq!(*cmd, Command::Move(MovementDirection::Left, 13.12));
         }
 
         #[test]
         fn call_on_tick_if_missing() {
-            let mut player = LuaImpl::new("return {}").unwrap();
-            let res: Commands = player.on_event(&Event::RoundStarted(17)).unwrap();
+            let mut character = LuaImpl::new("return {}").unwrap();
+            let res: Commands = character.on_event(&Event::RoundStarted(17)).unwrap();
             assert_eq!(res.value.len(), 0);
         }
     }

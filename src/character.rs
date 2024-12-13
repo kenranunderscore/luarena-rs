@@ -50,12 +50,12 @@ impl Default for Intent {
     }
 }
 
-pub struct Player {
+pub struct Character {
     pub implementation: Box<dyn Impl>,
     pub intent: Intent,
 }
 
-impl Player {
+impl Character {
     pub fn new(implementation: Box<dyn Impl>) -> Self {
         Self {
             implementation,
@@ -65,7 +65,7 @@ impl Player {
 }
 
 #[derive(Debug)]
-pub struct CurrentPlayerState {
+pub struct CurrentCharacterState {
     pub x: f32,
     pub y: f32,
     pub hp: f32,
@@ -78,7 +78,7 @@ pub struct CurrentPlayerState {
     pub arms_turn_remaining: f32,
 }
 
-impl CurrentPlayerState {
+impl CurrentCharacterState {
     pub fn from_state(state: &State, intent: &Intent) -> Self {
         Self {
             x: state.pos.x,
@@ -97,7 +97,7 @@ impl CurrentPlayerState {
 
 #[derive(Debug)]
 pub enum Event {
-    Tick(u32, CurrentPlayerState),
+    Tick(u32, CurrentCharacterState),
     RoundStarted(u32),
     RoundEnded(Option<Meta>),
     RoundDrawn,
@@ -218,6 +218,6 @@ impl State {
     }
 }
 
-pub fn log_msg(player_name: &str, msg: &str) {
-    println!("[{}]: {msg}", player_name);
+pub fn log_msg(character_name: &str, msg: &str) {
+    println!("[{}]: {msg}", character_name);
 }

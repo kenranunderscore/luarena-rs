@@ -1,4 +1,4 @@
-package luarena:player;
+package luarena:character;
 
 interface handlers {
     enum movement-direction {
@@ -26,7 +26,7 @@ interface handlers {
         y: f32,
     }
 
-    record player-state {
+    record character-state {
         x: f32,
         y: f32,
         hp: f32,
@@ -43,7 +43,7 @@ interface handlers {
     on-round-ended: func(opt-winner: option<string>);
     on-round-won: func();
     on-round-drawn: func();
-    on-tick: func(tick: u32, current-state: player-state) -> list<command>;
+    on-tick: func(tick: u32, current-state: character-state) -> list<command>;
     on-enemy-seen: func(enemy: string, p: point) -> list<command>;
     on-hit-by: func(enemy: string) -> list<command>;
     on-attack-hit: func(enemy: string, p: point) -> list<command>;
@@ -51,7 +51,7 @@ interface handlers {
     on-death: func();
 }
 
-world player {
+world character {
     import log: func(msg: string);
     export handlers;
 }

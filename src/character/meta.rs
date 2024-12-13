@@ -127,7 +127,7 @@ entrypoint = \"kai.lua\"
 
         #[test]
         fn color_has_default_value() {
-            // TODO: add `PlayerColor` implementing Default
+            // TODO: add `CharacterColor` implementing Default
             let toml_str = "
 name = \"Nya\"
 id = \"00000000-0000-0000-0000-000000000000\"

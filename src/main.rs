@@ -9,11 +9,11 @@ use game::*;
 use render::GameRenderer;
 use settings::*;
 
+mod character;
 mod cli;
 mod color;
 mod game;
 mod math_utils;
-mod player;
 mod render;
 mod settings;
 
@@ -21,19 +21,19 @@ fn main() {
     let cli = cli::Cli::parse();
     match cli.mode {
         cli::Mode::Battle {
-            player_dirs,
+            character_dirs,
             headless,
         } => {
             if headless {
                 // FIXME: get rid of unwraps
-                let mut game = Game::with_players(&player_dirs).unwrap();
+                let mut game = Game::with_characters(&character_dirs).unwrap();
                 let _ = run_game_headless(&mut game).unwrap();
             } else {
                 with_gui(|writer, cancel| {
-                    let player_dirs = player_dirs.clone();
+                    let character_dirs = character_dirs.clone();
                     let cancel = cancel.clone();
                     std::thread::spawn(move || {
-                        let mut game = Game::with_players(&player_dirs)?;
+                        let mut game = Game::with_characters(&character_dirs)?;
                         let delay = Duration::from_millis(7);
                         run_game(&mut game, &delay, writer, cancel)
                     })

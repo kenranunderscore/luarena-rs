@@ -5,7 +5,7 @@ use raylib::prelude::*;
 
 use crate::game::{GameEvent, StepEvents};
 use crate::math_utils::Point;
-use crate::{math_utils, player, settings::*};
+use crate::{character, math_utils, settings::*};
 
 const VISION_COLOR: Color = Color {
     r: 150,
@@ -21,7 +21,7 @@ const TEXT_COLOR: Color = Color {
     a: 255,
 };
 
-struct PlayerData {
+struct CharacterData {
     color: Color,
     display_name: String,
     x: f32,
@@ -31,8 +31,8 @@ struct PlayerData {
     arms_heading: f32,
 }
 
-impl PlayerData {
-    fn new(meta: &player::Meta, p: &Point) -> Self {
+impl CharacterData {
+    fn new(meta: &character::Meta, p: &Point) -> Self {
         Self {
             color: to_raylib_color(&meta.color),
             display_name: format!("{}", meta.display_name()),
@@ -46,18 +46,18 @@ impl PlayerData {
 }
 
 struct GameData {
-    players: HashMap<player::Meta, PlayerData>,
+    characters: HashMap<character::Meta, CharacterData>,
 }
 
 impl GameData {
     fn new() -> Self {
         Self {
-            players: HashMap::new(),
+            characters: HashMap::new(),
         }
     }
 
-    fn player(&mut self, meta: &player::Meta) -> &mut PlayerData {
-        self.players.get_mut(meta).unwrap()
+    fn character(&mut self, meta: &character::Meta) -> &mut CharacterData {
+        self.characters.get_mut(meta).unwrap()
     }
 }
 
@@ -74,7 +74,7 @@ fn draw_line_in_direction(
     d.draw_line(x, y, x + dx.round() as i32, y - dy.round() as i32, color);
 }
 
-fn draw_player_vision(d: &mut RaylibDrawHandle, x: i32, y: i32, heading: f32) {
+fn draw_character_vision(d: &mut RaylibDrawHandle, x: i32, y: i32, heading: f32) {
     let vision_delta = ANGLE_OF_VISION / 2.0;
     let side_len = (WIDTH + HEIGHT) as f32; // don't know whether this is smart or dumb...
     let origin = Vector2::new(x as f32, y as f32);
@@ -90,18 +90,25 @@ fn draw_player_vision(d: &mut RaylibDrawHandle, x: i32, y: i32, heading: f32) {
     );
 }
 
-fn draw_player_arms(d: &mut RaylibDrawHandle, x: i32, y: i32, heading: f32) {
-    draw_line_in_direction(d, x, y, heading, 1.5 * PLAYER_RADIUS as f32, &Color::YELLOW);
+fn draw_character_arms(d: &mut RaylibDrawHandle, x: i32, y: i32, heading: f32) {
+    draw_line_in_direction(
+        d,
+        x,
+        y,
+        heading,
+        1.5 * CHARACTER_RADIUS as f32,
+        &Color::YELLOW,
+    );
 }
 
 fn draw_heading(d: &mut RaylibDrawHandle, x: i32, y: i32, heading: f32, color: &Color) {
-    draw_line_in_direction(d, x, y, heading, 1.6 * PLAYER_RADIUS as f32, color);
+    draw_line_in_direction(d, x, y, heading, 1.6 * CHARACTER_RADIUS as f32, color);
     draw_line_in_direction(
         d,
         x,
         y,
         heading + PI as f32,
-        1.2 * PLAYER_RADIUS as f32,
+        1.2 * CHARACTER_RADIUS as f32,
         color,
     );
     draw_line_in_direction(
@@ -109,7 +116,7 @@ fn draw_heading(d: &mut RaylibDrawHandle, x: i32, y: i32, heading: f32, color: &
         x,
         y,
         heading + PI as f32 / 2.0,
-        1.2 * PLAYER_RADIUS as f32,
+        1.2 * CHARACTER_RADIUS as f32,
         color,
     );
     draw_line_in_direction(
@@ -117,7 +124,7 @@ fn draw_heading(d: &mut RaylibDrawHandle, x: i32, y: i32, heading: f32, color: &
         x,
         y,
         heading - PI as f32 / 2.0,
-        1.2 * PLAYER_RADIUS as f32,
+        1.2 * CHARACTER_RADIUS as f32,
         color,
     );
 }
@@ -131,29 +138,29 @@ fn to_raylib_color(color: &crate::color::Color) -> Color {
     }
 }
 
-fn draw_player_name<'a>(d: &mut RaylibDrawHandle, name: &str, x: i32, y: i32, font_size: i32) {
+fn draw_character_name<'a>(d: &mut RaylibDrawHandle, name: &str, x: i32, y: i32, font_size: i32) {
     let w = d.measure_text(name, font_size);
     d.draw_text(
         name,
         x - w / 2,
-        y + PLAYER_RADIUS as i32 + font_size,
+        y + CHARACTER_RADIUS as i32 + font_size,
         font_size,
         TEXT_COLOR,
     );
 }
 
-fn draw_player_body<'a>(d: &mut RaylibDrawHandle, x: i32, y: i32, color: &Color) {
-    d.draw_circle(x, y, PLAYER_RADIUS as f32, color);
+fn draw_character_body<'a>(d: &mut RaylibDrawHandle, x: i32, y: i32, color: &Color) {
+    d.draw_circle(x, y, CHARACTER_RADIUS as f32, color);
 }
 
-fn draw_player<'a>(d: &mut RaylibDrawHandle, player: &'a PlayerData) {
-    let x = player.x.round() as i32;
-    let y = player.y.round() as i32;
-    draw_player_vision(d, x, y, player.heading + player.head_heading);
-    draw_player_arms(d, x, y, player.heading + player.arms_heading);
-    draw_heading(d, x, y, player.heading, &player.color);
-    draw_player_body(d, x, y, &player.color);
-    draw_player_name(d, &player.display_name, x, y, 18);
+fn draw_character<'a>(d: &mut RaylibDrawHandle, character: &'a CharacterData) {
+    let x = character.x.round() as i32;
+    let y = character.y.round() as i32;
+    draw_character_vision(d, x, y, character.heading + character.head_heading);
+    draw_character_arms(d, x, y, character.heading + character.arms_heading);
+    draw_heading(d, x, y, character.heading, &character.color);
+    draw_character_body(d, x, y, &character.color);
+    draw_character_name(d, &character.display_name, x, y, 18);
 }
 
 fn draw_attack(d: &mut RaylibDrawHandle, attack: &Point) {
@@ -182,38 +189,38 @@ impl<'a> GameRenderer<'a> {
     fn process_event(&mut self, d: &mut RaylibDrawHandle, event: GameEvent) {
         match event {
             GameEvent::Tick(_) => {}
-            GameEvent::RoundStarted(_, players) => {
-                self.state.players = HashMap::new();
-                for (meta, pos) in players.iter() {
+            GameEvent::RoundStarted(_, characters) => {
+                self.state.characters = HashMap::new();
+                for (meta, pos) in characters.iter() {
                     self.state
-                        .players
-                        .insert(meta.clone(), PlayerData::new(&meta, &pos));
+                        .characters
+                        .insert(meta.clone(), CharacterData::new(&meta, &pos));
                 }
             }
             GameEvent::RoundEnded(_) => {}
-            GameEvent::PlayerPositionUpdated(meta, delta) => {
-                let player = self.state.player(&meta);
-                player.x = player.x + delta.value.x;
-                player.y = player.y + delta.value.y;
+            GameEvent::CharacterPositionUpdated(meta, delta) => {
+                let character = self.state.character(&meta);
+                character.x = character.x + delta.value.x;
+                character.y = character.y + delta.value.y;
             }
-            GameEvent::PlayerTurned(meta, delta) => {
-                let player = self.state.player(&meta);
-                player.heading = player.heading + delta;
+            GameEvent::CharacterTurned(meta, delta) => {
+                let character = self.state.character(&meta);
+                character.heading = character.heading + delta;
             }
-            GameEvent::PlayerHeadTurned(meta, delta) => {
-                let player = self.state.player(&meta);
-                player.head_heading = player.head_heading + delta;
+            GameEvent::CharacterHeadTurned(meta, delta) => {
+                let character = self.state.character(&meta);
+                character.head_heading = character.head_heading + delta;
             }
-            GameEvent::PlayerArmsTurned(meta, delta) => {
-                let player = self.state.player(&meta);
-                player.arms_heading = player.arms_heading + delta;
+            GameEvent::CharacterArmsTurned(meta, delta) => {
+                let character = self.state.character(&meta);
+                character.arms_heading = character.arms_heading + delta;
             }
             GameEvent::Hit(_, _, _, _) => {}
             GameEvent::AttackAdvanced(_, pos) => draw_attack(d, &pos),
             GameEvent::AttackMissed(_) => {}
             GameEvent::AttackCreated(_, a) => draw_attack(d, &a.pos),
-            GameEvent::PlayerDied(meta) => {
-                self.state.players.remove(&meta);
+            GameEvent::CharacterDied(meta) => {
+                self.state.characters.remove(&meta);
             }
         }
     }
@@ -235,13 +242,13 @@ impl<'a> GameRenderer<'a> {
         }
     }
 
-    fn draw_players(&self, d: &mut RaylibDrawHandle) {
-        for player in self.state.players.values() {
-            draw_player(d, player);
+    fn draw_characters(&self, d: &mut RaylibDrawHandle) {
+        for character in self.state.characters.values() {
+            draw_character(d, character);
         }
     }
 
     fn draw(&self, d: &mut RaylibDrawHandle) {
-        self.draw_players(d);
+        self.draw_characters(d);
     }
 }
