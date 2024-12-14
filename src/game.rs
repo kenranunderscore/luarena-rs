@@ -59,12 +59,12 @@ impl Tick {
 }
 
 pub struct Game {
-    pub tick: Tick,
-    pub round: Round,
-    pub characters: HashMap<character::Meta, character::State>,
-    pub impls: HashMap<character::Meta, Character>,
-    pub attacks: Vec<Attack>,
-    pub round_state: RoundState,
+    tick: Tick,
+    round: Round,
+    characters: HashMap<character::Meta, character::State>,
+    impls: HashMap<character::Meta, Character>,
+    attacks: Vec<Attack>,
+    round_state: RoundState,
     attack_ids: AttackIds,
 }
 
