@@ -201,7 +201,7 @@ impl LuaImpl {
         })
     }
 
-    fn table(&self) -> LuaResult<LuaTable> {
+    fn table(&self) -> LuaResult<LuaTable<'_>> {
         let t = self.lua.registry_value(&self.key)?;
         Ok(t)
     }
