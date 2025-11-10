@@ -88,6 +88,7 @@ where
         .title("hello world")
         .msaa_4x()
         .build();
+    rl.set_target_fps(120);
     let mut renderer = GameRenderer::new(&game_reader);
     while !rl.window_should_close() && !game_thread.is_finished() {
         renderer.step(&mut rl, &thread);
