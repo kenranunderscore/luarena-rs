@@ -1,2 +1,5 @@
 [build]
 rustflags = ["-L", "/usr/local/lib"]
+
+[env]
+CMAKE_INCLUDE_PATH = "/usr/include"

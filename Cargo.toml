@@ -9,6 +9,7 @@ float_eq = "1.0.1"
 quickcheck = "1.0.3"
 quickcheck_macros = "1.0.0"
 rand = "0.8.5"
+raylib = { version = "5.5.1", features = ["wayland"] }
 toml = "0.8.19"
 uuid = { version = "1.11.0", features = ["v7"] }
 wasmtime = "26.0.1"
@@ -17,7 +18,3 @@ wit-bindgen = "0.34.0"
 [dependencies.mlua]
 version = "0.9.9"
 features = ["lua54", "vendored"]
-[dependencies.raylib]
-git = "https://github.com/kenranunderscore/raylib-rs"
-version = "5.0.1"
-features = ["nobuild"]
